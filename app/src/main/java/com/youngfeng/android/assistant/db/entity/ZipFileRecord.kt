@@ -2,6 +2,7 @@ package com.youngfeng.android.assistant.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Ignore
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "t_zip_file_record")
@@ -20,6 +21,7 @@ data class ZipFileRecord(
     @ColumnInfo(name = "create_time")
     var createTime: Long
 ) {
+    @Ignore
     constructor(
         name: String,
         path: String,

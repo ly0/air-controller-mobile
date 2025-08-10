@@ -9,7 +9,15 @@ plugins {
 }
 
 android {
+    namespace "com.youngfeng.android.assistant"
     compileSdk 31
+    
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.lifecycle:lifecycle-viewmodel:2.4.0'
+            force 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0'
+        }
+    }
 
     defaultConfig {
         applicationId "com.youngfeng.android.assistant"
@@ -19,6 +27,12 @@ android {
         versionName "0.3.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
+            }
+        }
     }
 
     buildTypes {
@@ -56,13 +70,14 @@ android {
         reports {
             html {
                 enabled = true
-                destination  = file("build/reports/detekt/detekt.html")
+                destination = file("build/reports/detekt/detekt.html")
             }
         }
     }
 
-    dataBinding {
-        enabled = true
+    buildFeatures {
+        dataBinding true
+        buildConfig true
     }
 }
 
@@ -105,11 +120,13 @@ dependencies {
     implementation 'pub.devrel:easypermissions:3.0.0'
     implementation 'com.jakewharton.timber:timber:5.0.1'
 
-    debugImplementation 'com.amitshekhar.android:debug-db:1.0.6'
+    // debugImplementation 'com.amitshekhar.android:debug-db:1.0.6'
 
     testImplementation 'junit:junit:4.+'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
-    implementation 'com.github.vestrel00:contacts-android:0.2.2'
-    implementation "org.jetbrains.kotlin:kotlin-reflect:1.6.21"
+    implementation ('com.github.vestrel00:contacts-android:0.2.4') {
+        exclude group: 'androidx.lifecycle', module: 'lifecycle-viewmodel-ktx'
+    }
+    implementation "org.jetbrains.kotlin:kotlin-reflect:1.9.0"
 }
