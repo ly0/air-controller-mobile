@@ -37,12 +37,15 @@ import com.youngfeng.android.assistant.model.Device
 import com.youngfeng.android.assistant.scan.ScanActivity
 import com.youngfeng.android.assistant.service.NetworkService
 import com.youngfeng.android.assistant.util.CommonUtil
+import com.youngfeng.android.assistant.util.NetworkUtil
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import pub.devrel.easypermissions.EasyPermissions
 import pub.devrel.easypermissions.PermissionRequest
 import timber.log.Timber
+import java.util.Timer
+import java.util.TimerTask
 
 class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private var mViewDataBinding: ActivityMainBinding? = null
@@ -77,6 +80,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private val mPermissionManager by lazy {
         com.youngfeng.android.assistant.manager.PermissionManager.with(this)
     }
+    private var mHotspotCheckTimer: Timer? = null
 
     companion object {
         private const val TAG = "MainActivity"
@@ -106,6 +110,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
         registerUninstallLauncher()
         startNetworkService()
+        startHotspotCheckTimer()
     }
 
     private fun startNetworkService() {
@@ -175,9 +180,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onAvailable(network)
 
                         runOnUiThread {
-                            val isWifiConnected = connectivityManager.getNetworkCapabilities(network)
-                                ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                            mViewModel.setWifiConnectStatus(isWifiConnected == true)
+                            updateNetworkStatus()
                         }
                     }
 
@@ -185,7 +188,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onLost(network)
 
                         runOnUiThread {
-                            mViewModel.setWifiConnectStatus(false)
+                            updateNetworkStatus()
                         }
                     }
                 })
@@ -200,10 +203,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onAvailable(network)
 
                         runOnUiThread {
-                            val isWifiConnected =
-                                connectivityManager.getNetworkCapabilities(network)
-                                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                            mViewModel.setWifiConnectStatus(isWifiConnected == true)
+                            updateNetworkStatus()
                         }
                     }
 
@@ -211,21 +211,46 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onLost(network)
 
                         runOnUiThread {
-                            mViewModel.setWifiConnectStatus(false)
+                            updateNetworkStatus()
                         }
                     }
                 }
             )
+        }
+
+        updateNetworkStatus()
+    }
+
+    private fun updateNetworkStatus() {
+        val isNetworkAvailable = NetworkUtil.isNetworkAvailable(this)
+        mViewModel.setWifiConnectStatus(isNetworkAvailable)
+
+        if (isNetworkAvailable) {
+            val networkStatus = NetworkUtil.getNetworkStatus(this)
+            Timber.d("Network available: $networkStatus")
+
+            if (NetworkUtil.isHotspotEnabled(this)) {
+                mViewModel.setWlanName("Hotspot Mode")
+            } else if (NetworkUtil.isWifiConnected(this)) {
+                val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                val info = wifiManager.connectionInfo
+                val ssid = info.ssid
+                mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+            }
         }
     }
 
     private fun setUpDeviceInfo() {
         mViewModel.setDeviceName(Build.MODEL)
 
-        val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-        val info = wifiManager.connectionInfo
-        val ssid = info.ssid
-        mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+        if (NetworkUtil.isHotspotEnabled(this)) {
+            mViewModel.setWlanName("Hotspot Mode")
+        } else {
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            val info = wifiManager.connectionInfo
+            val ssid = info.ssid
+            mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+        }
     }
 
     private fun updatePermissionsStatus() {
@@ -371,13 +396,32 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     override fun onResume() {
         super.onResume()
         updatePermissionsStatus()
+        updateNetworkStatus()
     }
 
     override fun onDestroy() {
         super.onDestroy()
 
+        mHotspotCheckTimer?.cancel()
+        mHotspotCheckTimer = null
+
         if (EventBus.getDefault().isRegistered(this)) {
             EventBus.getDefault().unregister(this)
         }
+    }
+
+    private fun startHotspotCheckTimer() {
+        mHotspotCheckTimer?.cancel()
+        mHotspotCheckTimer = Timer()
+        mHotspotCheckTimer?.scheduleAtFixedRate(
+            object : TimerTask() {
+                override fun run() {
+                    runOnUiThread {
+                        updateNetworkStatus()
+                    }
+                }
+            },
+            0, 2000
+        )
     }
 }

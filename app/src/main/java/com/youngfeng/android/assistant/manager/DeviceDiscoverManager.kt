@@ -11,7 +11,9 @@ import com.youngfeng.android.assistant.model.Device
 import timber.log.Timber
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.util.Timer
 import java.util.TimerTask
 import java.util.concurrent.Executors
@@ -131,10 +133,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     @SuppressLint("WifiManagerLeak")
     private fun sendBroadcastMsg() {
         try {
-            val wifiManager = AirControllerApp.getInstance()
-                .getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-            val ip = Formatter.formatIpAddress(wifiManager.connectionInfo.ipAddress)
+            val ip = getDeviceIpAddress()
             val name = Build.MODEL
 
             val searchCmd = "${Constants.SEARCH_PREFIX}${
@@ -147,11 +146,66 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             val address = InetSocketAddress("255.255.255.255", Constants.Port.UDP_DEVICE_DISCOVER)
             val packet = DatagramPacket(cmdByteArray, cmdByteArray.size, address)
 
-            Timber.d("Send msg to 255.255.255.255")
+            Timber.d("Send broadcast msg to 255.255.255.255, device IP: $ip")
             mDatagramSocket?.send(packet)
         } catch (e: Exception) {
             Timber.e(e.message ?: "Unknown error")
         }
+    }
+
+    /**
+     * 获取设备IP地址，支持WiFi连接和热点模式
+     */
+    private fun getDeviceIpAddress(): String {
+        val context = AirControllerApp.getInstance()
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+        // 先尝试获取WiFi连接的IP地址
+        val wifiIp = wifiManager.connectionInfo.ipAddress
+        if (wifiIp != 0) {
+            val formattedIp = Formatter.formatIpAddress(wifiIp)
+            if (formattedIp != "0.0.0.0") {
+                Timber.d("Using WiFi IP: $formattedIp")
+                return formattedIp
+            }
+        }
+
+        // 如果WiFi IP无效，尝试获取热点模式的IP地址
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val interfaceName = networkInterface.name.lowercase()
+                
+                // 热点接口通常是 wlan0, ap0, swlan0 等
+                if (interfaceName.contains("wlan") || interfaceName.contains("ap") || 
+                    interfaceName.contains("swlan") || interfaceName.contains("tether")) {
+                    
+                    val addresses = networkInterface.inetAddresses
+                    while (addresses.hasMoreElements()) {
+                        val address = addresses.nextElement()
+                        if (!address.isLoopbackAddress && address is InetAddress) {
+                            val hostAddress = address.hostAddress
+                            // 过滤IPv6地址和链路本地地址
+                            if (hostAddress != null && !hostAddress.contains(":") && 
+                                !hostAddress.startsWith("127.") && !hostAddress.startsWith("169.254.")) {
+                                // 热点IP通常是 192.168.43.1 或 192.168.49.1
+                                if (hostAddress.startsWith("192.168.")) {
+                                    Timber.d("Using Hotspot IP from interface $interfaceName: $hostAddress")
+                                    return hostAddress
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e("Error getting network interfaces: ${e.message}")
+        }
+
+        // 如果还是没有找到，返回默认值
+        Timber.w("Could not determine device IP address, using default")
+        return "0.0.0.0"
     }
 
     private fun isValidData(data: String): Boolean {
