@@ -167,6 +167,10 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                 mViewModel.clearLogs()
                 mViewModel.addLogEntry("日志已清空", LogType.INFO)
             }
+
+            this.switchLogs.setOnCheckedChangeListener { _, isChecked ->
+                mViewModel.setLoggingEnabled(isChecked)
+            }
         }
     }
 

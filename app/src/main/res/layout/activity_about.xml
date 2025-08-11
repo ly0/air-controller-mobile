@@ -55,4 +55,16 @@
             android:autoLink="all"
             android:textColorLink="#0000cc"/>
 
+    <androidx.appcompat.widget.AppCompatTextView
+        android:id="@+id/appCompatTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:autoLink="all"
+        android:text="@string/origin_url_project"
+        android:textColor="#0000cc"
+        android:textColorLink="#0000cc"
+        android:textSize="16sp" />
+
 </androidx.appcompat.widget.LinearLayoutCompat>

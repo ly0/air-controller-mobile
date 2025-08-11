@@ -43,6 +43,9 @@ class HomeViewModel : ViewModel() {
     private val _logEntries = MutableLiveData<MutableList<LogEntry>>(mutableListOf())
     val logEntries: LiveData<MutableList<LogEntry>> = _logEntries
 
+    private val _isLoggingEnabled = MutableLiveData<Boolean>(true)
+    val isLoggingEnabled: LiveData<Boolean> = _isLoggingEnabled
+
     fun setWifiConnectStatus(isConnected: Boolean) {
         _isWifiConnected.value = isConnected
     }
@@ -101,15 +104,36 @@ class HomeViewModel : ViewModel() {
     }
 
     fun addLogEntry(message: String, type: LogType = LogType.INFO) {
-        val currentList = _logEntries.value ?: mutableListOf()
-        currentList.add(0, LogEntry(message = message, type = type))
+        // 只有在日志开关打开时才添加日志
+        if (_isLoggingEnabled.value == true) {
+            val currentList = _logEntries.value ?: mutableListOf()
+            currentList.add(0, LogEntry(message = message, type = type))
 
-        // Keep only the latest 100 entries
-        if (currentList.size > 100) {
-            currentList.removeAt(currentList.size - 1)
+            // Keep only the latest 100 entries
+            if (currentList.size > 100) {
+                currentList.removeAt(currentList.size - 1)
+            }
+
+            _logEntries.value = currentList
         }
+    }
 
-        _logEntries.value = currentList
+    fun setLoggingEnabled(enabled: Boolean) {
+        val wasEnabled = _isLoggingEnabled.value ?: true
+        _isLoggingEnabled.value = enabled
+
+        // 只在状态改变时输出日志
+        if (wasEnabled != enabled) {
+            if (enabled) {
+                // 因为日志被关闭了，所以这条消息需要先设置状态再添加
+                addLogEntry("日志记录已开启", LogType.INFO)
+            } else {
+                // 在关闭之前添加这条消息
+                _isLoggingEnabled.value = true
+                addLogEntry("日志记录已关闭", LogType.WARNING)
+                _isLoggingEnabled.value = false
+            }
+        }
     }
 
     fun clearLogs() {
