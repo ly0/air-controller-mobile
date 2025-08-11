@@ -47,8 +47,8 @@
     <string name="rationale_ask_ok">立即开启</string>
     <string name="rationale_ask_cancel">退出</string>
     <string name="project_address">项目地址</string>
-    <string name="url_project">https://github.com/air-controller</string>
-    <string name="url_project_desktop">https://github.com/air-controller/air-controller-desktop</string>
+    <string name="url_project">原项目地址：https://github.com/air-controller\nlatyasVer: https://github.com/ly0/air-controller</string>
+    <string name="url_project_desktop">https://github.com/ly0/air-controller-desktop</string>
     <string name="tip_support_developer">点击"必须支持"打开项目网页后，可点击右上角star支持我，非常感谢你的支持！</string>
     <string name="support">必须支持</string>
     <string name="refuse">残忍拒绝</string>

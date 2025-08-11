@@ -261,10 +261,9 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         if (isNetworkAvailable) {
             val networkStatus = NetworkUtil.getNetworkStatus(this)
             Timber.d("Network available: $networkStatus")
-            mViewModel.addLogEntry("网络状态: $networkStatus", LogType.NETWORK)
 
-            // 设置网络模式
-            mViewModel.setNetworkMode(networkStatus)
+            // 设置网络模式并只在状态改变时输出日志
+            mViewModel.setNetworkModeWithLog(networkStatus)
 
             // 分别获取并设置WiFi IP和热点IP
             val wifiIp = NetworkUtil.getWifiIpAddress(this)
@@ -293,7 +292,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                 }
             }
         } else {
-            mViewModel.setNetworkMode("No Network")
+            mViewModel.setNetworkModeWithLog("No Network")
             mViewModel.setWifiIpAddress(null)
             mViewModel.setHotspotIpAddress(null)
         }
@@ -302,7 +301,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private fun setUpDeviceInfo() {
         mViewModel.setDeviceName(Build.MODEL)
 
-        // 获取网络状态
+        // 获取网络状态（初始化时不输出日志）
         val networkStatus = NetworkUtil.getNetworkStatus(this)
         mViewModel.setNetworkMode(networkStatus)
 

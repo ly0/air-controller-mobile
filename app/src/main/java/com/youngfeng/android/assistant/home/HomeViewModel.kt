@@ -38,6 +38,8 @@ class HomeViewModel : ViewModel() {
     private val _networkMode = MutableLiveData<String>()
     val networkMode: LiveData<String> = _networkMode
 
+    private var previousNetworkMode: String? = null
+
     private val _logEntries = MutableLiveData<MutableList<LogEntry>>(mutableListOf())
     val logEntries: LiveData<MutableList<LogEntry>> = _logEntries
 
@@ -75,6 +77,18 @@ class HomeViewModel : ViewModel() {
 
     fun setNetworkMode(mode: String) {
         _networkMode.value = mode
+    }
+
+    fun setNetworkModeWithLog(mode: String) {
+        // 只在网络状态真正改变时输出日志
+        if (previousNetworkMode != mode) {
+            previousNetworkMode = mode
+            _networkMode.value = mode
+            addLogEntry("网络状态: $mode", LogType.NETWORK)
+        } else {
+            // 即使状态没变，也更新LiveData以保持UI同步
+            _networkMode.value = mode
+        }
     }
 
     fun disconnect() {

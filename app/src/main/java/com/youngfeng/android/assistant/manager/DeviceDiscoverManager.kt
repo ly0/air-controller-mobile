@@ -48,6 +48,16 @@ interface DeviceDiscoverManager {
      */
     fun stopDiscover()
 
+    /**
+     * 暂停广播发送（保持接收）.
+     */
+    fun pauseBroadcast()
+
+    /**
+     * 恢复广播发送.
+     */
+    fun resumeBroadcast()
+
     companion object {
         private val instance = DeviceDiscoverManagerImpl()
 
@@ -66,6 +76,8 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     private var onDeviceDiscover: ((device: Device) -> Unit)? = null
     private val mTimer by lazy { Timer() }
     private var mMulticastLock: MulticastLock? = null
+    private var mBroadcastTimerTask: TimerTask? = null
+    private var isBroadcastPaused = false
 
     private val mExecutor by lazy {
         Executors.newSingleThreadExecutor()
@@ -85,6 +97,14 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     }
 
     override fun startDiscover() {
+        if (isStarted) {
+            Timber.d("Discovery already started")
+            return
+        }
+
+        isStarted = true
+        isBroadcastPaused = false
+
         mExecutor.submit {
             // 获取多播锁（在热点模式下必需）
             acquireMulticastLock()
@@ -97,31 +117,30 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             // 为每个网络接口创建发送socket
             setupBroadcastSockets()
 
-            mTimer.schedule(
-                object : TimerTask() {
-                    override fun run() {
-                        sendBroadcastMsg()
+            // 开始广播定时器
+            startBroadcastTimer()
+
+            while (isStarted) {
+                try {
+                    val buffer = ByteArray(1024)
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    mReceiveSocket?.receive(packet)
+
+                    val data = String(buffer)
+                    if (isValidResponse(data)) {
+                        val device = convertToDevice(data)
+                        Timber.d("当前设备：${device.name}, platform: ${device.platform}, ip address: ${device.ip}")
+                        LogManager.log("发现设备: ${device.name} (${device.ip})", LogType.SUCCESS)
+                        onDeviceDiscover?.invoke(device)
+                    } else {
+                        Timber.d("It's not valid, data: $data")
                     }
-                },
-                0, 1000
-            )
-
-            while (!isStarted) {
-                val buffer = ByteArray(1024)
-                val packet = DatagramPacket(buffer, buffer.size)
-                mReceiveSocket?.receive(packet)
-
-                val data = String(buffer)
-                if (isValidResponse(data)) {
-                    val device = convertToDevice(data)
-                    Timber.d("当前设备：${device.name}, platform: ${device.platform}, ip address: ${device.ip}")
-                    LogManager.log("发现设备: ${device.name} (${device.ip})", LogType.SUCCESS)
-                } else {
-                    Timber.d("It's not valid, data: $data")
+                } catch (e: Exception) {
+                    if (isStarted) {
+                        Timber.e("Error receiving packet: ${e.message}")
+                    }
                 }
             }
-
-            isStarted = true
         }
     }
 
@@ -441,6 +460,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     }
 
     override fun stopDiscover() {
+        stopBroadcastTimer()
         mReceiveSocket?.close()
         mBroadcastInterfaces.forEach { it.socket.close() }
         mBroadcastInterfaces.clear()
@@ -450,6 +470,56 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
 
         // 释放多播锁
         releaseMulticastLock()
+    }
+
+    override fun pauseBroadcast() {
+        Timber.d("pauseBroadcast called: isPaused=$isBroadcastPaused")
+        if (!isBroadcastPaused) {
+            Timber.d("Pausing broadcast discovery")
+            LogManager.log("暂停设备发现广播", LogType.WARNING)
+            isBroadcastPaused = true
+            stopBroadcastTimer()
+        } else {
+            Timber.d("Broadcast already paused")
+        }
+    }
+
+    override fun resumeBroadcast() {
+        Timber.d("resumeBroadcast called: isPaused=$isBroadcastPaused, isStarted=$isStarted")
+        if (isBroadcastPaused && isStarted) {
+            Timber.d("Resuming broadcast discovery")
+            LogManager.log("恢复设备发现广播", LogType.SUCCESS)
+            isBroadcastPaused = false
+
+            // 重新设置广播接口（可能网络状态已经改变）
+            setupBroadcastSockets()
+
+            // 重新开始广播定时器
+            startBroadcastTimer()
+        } else if (!isStarted) {
+            Timber.w("Cannot resume broadcast - discovery not started")
+            LogManager.log("无法恢复广播 - 发现服务未启动", LogType.WARNING)
+        } else if (!isBroadcastPaused) {
+            Timber.d("Broadcast already running")
+            LogManager.log("广播已在运行中", LogType.INFO)
+        }
+    }
+
+    private fun startBroadcastTimer() {
+        mBroadcastTimerTask?.cancel()
+        mBroadcastTimerTask = object : TimerTask() {
+            override fun run() {
+                if (!isBroadcastPaused) {
+                    sendBroadcastMsg()
+                }
+            }
+        }
+        mTimer.schedule(mBroadcastTimerTask, 0, 1000)
+    }
+
+    private fun stopBroadcastTimer() {
+        mBroadcastTimerTask?.cancel()
+        mBroadcastTimerTask = null
     }
 
     /**

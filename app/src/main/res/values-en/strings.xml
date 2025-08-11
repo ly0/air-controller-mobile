@@ -47,8 +47,8 @@
     <string name="rationale_ask_ok">Enable immediately</string>
     <string name="rationale_ask_cancel">Cancel</string>
     <string name="project_address">Project address</string>
-    <string name="url_project">https://github.com/air-controller</string>
-    <string name="url_project_desktop">https://github.com/air-controller/air-controller-desktop</string>
+    <string name="url_project">Original: https://github.com/air-controller\nlatyasVer:https://github.com/ly0/air-controller</string>
+    <string name="url_project_desktop">https://github.com/ly0/air-controller-desktop</string>
     <string name="tip_support_developer">After clicking "Must Support" to open the project page, you can click the star in the upper right corner to support me, thank you very much for your support!</string>
     <string name="support">Must Support</string>
     <string name="refuse">Cruel Reject</string>

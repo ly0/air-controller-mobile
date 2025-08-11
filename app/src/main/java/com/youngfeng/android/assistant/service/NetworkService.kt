@@ -102,6 +102,9 @@ class NetworkService : Service() {
             override fun onClientTimeout(client: HeartbeatClient) {
                 super.onClientTimeout(client)
 
+                // 客户端超时，恢复广播
+                DeviceDiscoverManager.getInstance().resumeBroadcast()
+
                 EventBus.getDefault().post(DeviceDisconnectEvent())
                 Timber.d("Heartbeat server, onClientTimeout.")
             }
@@ -109,12 +112,19 @@ class NetworkService : Service() {
             override fun onClientConnected(client: HeartbeatClient?) {
                 super.onClientConnected(client)
 
+                // 连接成功，暂停广播
+                DeviceDiscoverManager.getInstance().pauseBroadcast()
+
                 EventBus.getDefault().post(DeviceConnectEvent())
                 Timber.d("Heartbeat server, onNewClientJoin.")
             }
 
             override fun onClientDisconnected() {
                 super.onClientDisconnected()
+
+                // 断开连接，恢复广播
+                DeviceDiscoverManager.getInstance().resumeBroadcast()
+
                 EventBus.getDefault().post(DeviceDisconnectEvent())
             }
         })
@@ -162,6 +172,8 @@ class NetworkService : Service() {
     fun onRequestDisconnectClient(event: RequestDisconnectClientEvent) {
         if (this::heartbeatServer.isInitialized) {
             this.heartbeatServer.disconnectClient()
+            // 主动断开连接，恢复广播
+            DeviceDiscoverManager.getInstance().resumeBroadcast()
         }
     }
 

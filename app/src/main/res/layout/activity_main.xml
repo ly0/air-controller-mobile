@@ -34,42 +34,42 @@
                         android:orientation="vertical">
 
                     <FrameLayout
-                            android:layout_width="210dp"
-                            android:layout_height="210dp"
-                            android:layout_marginTop="30dp"
-                            android:layout_marginBottom="20dp"
-                            android:background="@{viewModel.isDeviceConnected() ? @drawable/shape_circle_connected : @drawable/shape_circle_disconnected}"
-                            android:layout_gravity="center_horizontal">
+                        android:layout_width="90dp"
+                        android:layout_height="90dp"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="30dp"
+                        android:layout_marginBottom="20dp"
+                        android:background="@{viewModel.isDeviceConnected() ? @drawable/shape_circle_connected : @drawable/shape_circle_disconnected}">
 
                         <androidx.appcompat.widget.LinearLayoutCompat
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:layout_gravity="center"
-                                android:gravity="center">
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center"
+                            android:orientation="vertical">
 
                             <ImageView
-                                    android:layout_width="40dp"
-                                    android:layout_height="40dp"
-                                    android:scaleType="centerCrop"
-                                    android:src="@mipmap/ic_bolt"
-                                    app:tint="@color/white" />
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:scaleType="centerCrop"
+                                android:src="@mipmap/ic_bolt"
+                                app:tint="@color/white" />
 
                             <TextView
-                                    android:id="@+id/text_indicator"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:layout_gravity="center_horizontal"
-                                    android:layout_marginTop="10dp"
-                                    android:layout_marginStart="20dp"
-                                    android:layout_marginEnd="20dp"
-                                    android:layout_below="@+id/btn_indicator"
-                                    android:layout_centerHorizontal="true"
-                                    android:textSize="16sp"
-                                    android:gravity="center"
-                                    android:textColor="@color/white"
-                                    android:text="@{viewModel.isDeviceConnected() ? @string/connected : @string/disconnected}"
-                                    tools:text="已连接" />
+                                android:id="@+id/text_indicator"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_below="@+id/btn_indicator"
+                                android:layout_centerHorizontal="true"
+                                android:layout_gravity="center_horizontal"
+                                android:layout_marginStart="20dp"
+                                android:layout_marginTop="10dp"
+                                android:layout_marginEnd="20dp"
+                                android:gravity="center"
+                                android:text="@{viewModel.isDeviceConnected() ? @string/connected : @string/disconnected}"
+                                android:textColor="@color/white"
+                                android:textSize="16sp"
+                                tools:text="已连接" />
 
                         </androidx.appcompat.widget.LinearLayoutCompat>
                     </FrameLayout>
@@ -257,71 +257,6 @@
                     </androidx.cardview.widget.CardView>
 
                     <androidx.cardview.widget.CardView
-                            android:id="@+id/card_logs"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="30dp"
-                            android:layout_marginStart="20dp"
-                            android:layout_marginEnd="20dp"
-                            app:cardElevation ="5dp">
-
-                        <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="15dp"
-                                android:layout_marginBottom="10dp"
-                                android:orientation="vertical">
-
-                            <LinearLayout
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:orientation="horizontal"
-                                    android:layout_marginStart="10dp"
-                                    android:layout_marginEnd="10dp">
-
-                                <TextView
-                                        android:layout_width="0dp"
-                                        android:layout_height="wrap_content"
-                                        android:layout_weight="1"
-                                        android:textSize="16sp"
-                                        android:textColor="#333333"
-                                        android:text="@string/label_activity_logs"
-                                        android:textStyle="bold"
-                                        tools:text="活动日志：" />
-
-                                <TextView
-                                        android:id="@+id/text_clear_logs"
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="@string/clear_logs"
-                                        android:textSize="14sp"
-                                        android:textColor="#3498DB"
-                                        android:padding="5dp"
-                                        android:clickable="true"
-                                        android:focusable="true" />
-                            </LinearLayout>
-
-                            <View
-                                    android:layout_width="match_parent"
-                                    android:layout_height="1dp"
-                                    android:background="#f5f5f5"
-                                    android:layout_marginStart="10dp"
-                                    android:layout_marginEnd="10dp"
-                                    android:layout_marginTop="10dp" />
-
-                            <androidx.recyclerview.widget.RecyclerView
-                                    android:id="@+id/recycler_logs"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="200dp"
-                                    android:layout_marginTop="10dp"
-                                    android:layout_marginStart="10dp"
-                                    android:layout_marginEnd="10dp"
-                                    android:layout_marginBottom="10dp"
-                                    android:scrollbars="vertical" />
-                        </LinearLayout>
-                    </androidx.cardview.widget.CardView>
-
-                    <androidx.cardview.widget.CardView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="30dp"
@@ -425,6 +360,71 @@
                                         tools:text="MacOS 11.8" />
                             </LinearLayout>
 
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/card_logs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:layout_marginTop="30dp"
+                        android:layout_marginEnd="20dp"
+                        app:cardElevation="5dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="15dp"
+                            android:layout_marginBottom="10dp"
+                            android:orientation="vertical">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:layout_marginEnd="10dp"
+                                android:orientation="horizontal">
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="@string/label_activity_logs"
+                                    android:textColor="#333333"
+                                    android:textSize="16sp"
+                                    android:textStyle="bold"
+                                    tools:text="活动日志：" />
+
+                                <TextView
+                                    android:id="@+id/text_clear_logs"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:clickable="true"
+                                    android:focusable="true"
+                                    android:padding="5dp"
+                                    android:text="@string/clear_logs"
+                                    android:textColor="#3498DB"
+                                    android:textSize="14sp" />
+                            </LinearLayout>
+
+                            <View
+                                android:layout_width="match_parent"
+                                android:layout_height="1dp"
+                                android:layout_marginStart="10dp"
+                                android:layout_marginTop="10dp"
+                                android:layout_marginEnd="10dp"
+                                android:background="#f5f5f5" />
+
+                            <androidx.recyclerview.widget.RecyclerView
+                                android:id="@+id/recycler_logs"
+                                android:layout_width="match_parent"
+                                android:layout_height="200dp"
+                                android:layout_marginStart="10dp"
+                                android:layout_marginTop="10dp"
+                                android:layout_marginEnd="10dp"
+                                android:layout_marginBottom="10dp"
+                                android:scrollbars="vertical" />
                         </LinearLayout>
                     </androidx.cardview.widget.CardView>
 
