@@ -85,6 +85,9 @@ class HomeViewModel : ViewModel() {
             previousNetworkMode = mode
             _networkMode.value = mode
             addLogEntry("网络状态: $mode", LogType.NETWORK)
+
+            // 网络状态改变时，更新广播配置
+            com.youngfeng.android.assistant.manager.DeviceDiscoverManager.getInstance().updateNetworkConfiguration()
         } else {
             // 即使状态没变，也更新LiveData以保持UI同步
             _networkMode.value = mode

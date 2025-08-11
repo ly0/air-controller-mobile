@@ -58,6 +58,11 @@ interface DeviceDiscoverManager {
      */
     fun resumeBroadcast()
 
+    /**
+     * 网络状态改变时更新广播配置.
+     */
+    fun updateNetworkConfiguration()
+
     companion object {
         private val instance = DeviceDiscoverManagerImpl()
 
@@ -520,6 +525,33 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     private fun stopBroadcastTimer() {
         mBroadcastTimerTask?.cancel()
         mBroadcastTimerTask = null
+    }
+
+    override fun updateNetworkConfiguration() {
+        Timber.d("updateNetworkConfiguration called: isStarted=$isStarted, isPaused=$isBroadcastPaused")
+
+        if (isStarted && !isBroadcastPaused) {
+            LogManager.log("网络状态改变，更新广播配置", LogType.NETWORK)
+
+            // 停止当前广播定时器
+            stopBroadcastTimer()
+
+            // 清理旧的广播接口
+            mBroadcastInterfaces.forEach { it.socket.close() }
+            mBroadcastInterfaces.clear()
+
+            // 重新设置广播sockets，这会根据当前网络状态配置正确的接口
+            setupBroadcastSockets()
+
+            // 重新开始广播定时器
+            startBroadcastTimer()
+
+            LogManager.log("广播配置已更新", LogType.SUCCESS)
+        } else if (!isStarted) {
+            Timber.w("Discovery service not started, skipping network configuration update")
+        } else if (isBroadcastPaused) {
+            Timber.d("Broadcast is paused, will update configuration when resumed")
+        }
     }
 
     /**
