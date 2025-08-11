@@ -122,4 +122,8 @@ object AudioUtil {
 
         return null
     }
+
+    fun getAudioById(context: Context, id: Long): AudioEntity? {
+        return findById(context, id.toString())
+    }
 }

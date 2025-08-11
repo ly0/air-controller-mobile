@@ -238,4 +238,31 @@ object ContactUtil {
             note = note
         )
     }
+
+    fun getAllAccounts(context: Context): List<ContactAccountInfo> {
+        return findAccountsAndGroups(context).accounts
+    }
+
+    fun getAllGroups(context: Context): List<ContactGroup> {
+        val contacts = Contacts(context)
+        return contacts.groups().query().find().map { group ->
+            ContactGroup(
+                id = group.id,
+                title = group.title,
+                count = -1
+            )
+        }
+    }
+
+    fun getRawContactsList(context: Context): List<ContactBasicInfo> {
+        return getAllContacts(context)
+    }
+
+    fun getRawContactsList(context: Context, account: ContactAccount): List<ContactBasicInfo> {
+        return getContactsByAccount(context, account.name, account.type)
+    }
+
+    fun getRawContactDetail(context: Context, id: Long): ContactDetail? {
+        return getContactDetail(context, id)
+    }
 }

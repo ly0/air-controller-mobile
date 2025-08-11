@@ -15,7 +15,6 @@ import android.os.PowerManager
 import android.os.PowerManager.ON_AFTER_RELEASE
 import android.os.PowerManager.PARTIAL_WAKE_LOCK
 import com.google.gson.Gson
-import com.yanzhenjie.andserver.AndServer
 import com.youngfeng.android.assistant.Constants
 import com.youngfeng.android.assistant.MainActivity
 import com.youngfeng.android.assistant.R
@@ -27,16 +26,19 @@ import com.youngfeng.android.assistant.manager.DeviceDiscoverManager
 import com.youngfeng.android.assistant.model.Command
 import com.youngfeng.android.assistant.model.Device
 import com.youngfeng.android.assistant.model.MobileInfo
+import com.youngfeng.android.assistant.server.configureKtorServer
 import com.youngfeng.android.assistant.socket.CmdSocketServer
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatClient
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatListener
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatServerPlus
 import com.youngfeng.android.assistant.util.CommonUtil
+import io.ktor.server.engine.ApplicationEngine
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import timber.log.Timber
-import java.util.concurrent.TimeUnit
 
 class NetworkService : Service() {
     private val mBatteryReceiver by lazy {
@@ -51,12 +53,7 @@ class NetworkService : Service() {
         receiver
     }
 
-    private val mHttpServer by lazy(mode = LazyThreadSafetyMode.NONE) {
-        AndServer.webServer(this)
-            .port(Constants.Port.HTTP_SERVER)
-            .timeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
-            .build()
-    }
+    private var mHttpServer: ApplicationEngine? = null
 
     private lateinit var mWakeLock: PowerManager.WakeLock
     private lateinit var heartbeatServer: HeartbeatServerPlus
@@ -133,7 +130,10 @@ class NetworkService : Service() {
         val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         registerReceiver(mBatteryReceiver, filter)
 
-        mHttpServer.startup()
+        mHttpServer = embeddedServer(Netty, port = Constants.Port.HTTP_SERVER) {
+            configureKtorServer(this@NetworkService)
+        }
+        mHttpServer?.start(wait = false)
 
         DeviceDiscoverManager.getInstance().onDeviceDiscover {
             Timber.d("Device: ip => ${it.ip}, name => ${it.name}, platform => ${it.platform}")
@@ -228,6 +228,7 @@ class NetworkService : Service() {
     }
 
     override fun onDestroy() {
+        mHttpServer?.stop(1000, 2000)
         mWakeLock.release()
         unRegisterEventBus()
         stopForeground(true)

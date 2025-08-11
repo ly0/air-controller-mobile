@@ -33,6 +33,9 @@ enum class HttpError(var code: String, var value: Int) {
     DeleteFileFail("08", R.string.delete_file_fail),
     RenameFileFail("09", R.string.rename_file_fail),
     MoveFileFail("10", R.string.move_file_fail),
+    FileNotExist("11", R.string.file_not_exist),
+    GetDownloadedFilesFailure("12", R.string.get_downloaded_files_failure),
+    UploadFilesFailure("13", R.string.upload_files_failure),
 
     // 图片模块
     DeleteImageFail("01", R.string.delete_image_fail),

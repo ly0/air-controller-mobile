@@ -294,4 +294,8 @@ object VideoUtil {
 
         return null
     }
+
+    fun getVideoById(context: Context, id: Long): VideoEntity? {
+        return findById(context, id.toString())
+    }
 }

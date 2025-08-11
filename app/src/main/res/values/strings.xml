@@ -11,6 +11,9 @@
     <string name="delete_file_fail">删除文件失败</string>
     <string name="rename_file_fail">文件重命名失败</string>
     <string name="move_file_fail">文件移动失败</string>
+    <string name="file_not_exist">文件不存在</string>
+    <string name="get_downloaded_files_failure">获取下载文件列表失败</string>
+    <string name="upload_files_failure">上传文件失败</string>
     <string name="delete_image_fail">删除图片失败</string>
     <string name="image_not_exist">图片不存在</string>
     <string name="delete_audio_file_fail">删除音频文件失败</string>

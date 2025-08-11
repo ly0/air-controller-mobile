@@ -20,4 +20,11 @@ interface UploadFileRecordDao {
     """
     )
     fun findWithMd5(md5: String): List<UploadFileRecord>
+
+    @Query(
+        """
+        SELECT * FROM t_upload_file_record ORDER BY upload_time DESC
+    """
+    )
+    fun getAll(): List<UploadFileRecord>
 }

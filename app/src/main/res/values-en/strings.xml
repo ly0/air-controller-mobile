@@ -11,6 +11,9 @@
     <string name="delete_file_fail">Delete files failure.</string>
     <string name="rename_file_fail">Rename file failure.</string>
     <string name="move_file_fail">Move file failure.</string>
+    <string name="file_not_exist">File not exists.</string>
+    <string name="get_downloaded_files_failure">Get downloaded files list failure.</string>
+    <string name="upload_files_failure">Upload files failure.</string>
     <string name="delete_image_fail">Delete images failure.</string>
     <string name="image_not_exist">The image not exists.</string>
     <string name="delete_audio_file_fail">Delete audio files failure.</string>

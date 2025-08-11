@@ -4,7 +4,6 @@ plugins {
     id 'com.android.application'
     id 'kotlin-android'
     id 'kotlin-kapt'
-    id 'com.yanzhenjie.andserver'
     id "io.gitlab.arturbosch.detekt"
 }
 
@@ -53,6 +52,12 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    
+    kapt {
+        javacOptions {
+            option("-Xmaxerrs", 500)
+        }
+    }
 
     detekt {
         toolVersion = "1.19.0-RC1"
@@ -80,6 +85,11 @@ android {
         dataBinding true
         buildConfig true
     }
+    
+    packagingOptions {
+        exclude 'META-INF/INDEX.LIST'
+        exclude 'META-INF/io.netty.versions.properties'
+    }
 }
 
 tasks.withType(Detekt).configureEach {
@@ -97,8 +107,16 @@ dependencies {
     implementation 'com.google.android.material:material:1.6.1'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
-    implementation 'com.yanzhenjie.andserver:api:2.1.10'
-    kapt 'com.yanzhenjie.andserver:processor:2.1.10'
+    def ktor_version = "2.3.7"
+    implementation "io.ktor:ktor-server-core:$ktor_version"
+    implementation "io.ktor:ktor-server-netty:$ktor_version"
+    implementation "io.ktor:ktor-server-content-negotiation:$ktor_version"
+    implementation "io.ktor:ktor-serialization-gson:$ktor_version"
+    implementation "io.ktor:ktor-server-cors:$ktor_version"
+    implementation "io.ktor:ktor-server-partial-content:$ktor_version"
+    implementation "io.ktor:ktor-server-auto-head-response:$ktor_version"
+    implementation "io.ktor:ktor-server-status-pages:$ktor_version"
+    implementation "io.ktor:ktor-server-call-logging:$ktor_version"
     implementation 'javax.activation:javax.activation-api:1.2.0'
 
     implementation 'com.google.code.gson:gson:2.9.0'

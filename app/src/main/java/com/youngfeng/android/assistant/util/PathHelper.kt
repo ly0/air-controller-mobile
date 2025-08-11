@@ -96,5 +96,77 @@ object PathHelper {
         return backFileDir()
     }
 
+    fun audioUploadDir(): File {
+        val audioDir = File(uploadFileDir(), "audio")
+
+        if (!audioDir.exists()) {
+            try {
+                if (audioDir.mkdirs()) {
+                    return audioDir
+                }
+            } catch (e: Exception) {
+                Timber.e("Create audio upload dir failure, reason: ${e.message}")
+            }
+        } else {
+            return audioDir
+        }
+
+        return uploadFileDir()
+    }
+
+    fun imageUploadDir(): File {
+        val imageDir = File(uploadFileDir(), "images")
+
+        if (!imageDir.exists()) {
+            try {
+                if (imageDir.mkdirs()) {
+                    return imageDir
+                }
+            } catch (e: Exception) {
+                Timber.e("Create image upload dir failure, reason: ${e.message}")
+            }
+        } else {
+            return imageDir
+        }
+
+        return uploadFileDir()
+    }
+
+    fun videoUploadDir(): File {
+        val videoDir = File(uploadFileDir(), "video")
+
+        if (!videoDir.exists()) {
+            try {
+                if (videoDir.mkdirs()) {
+                    return videoDir
+                }
+            } catch (e: Exception) {
+                Timber.e("Create video upload dir failure, reason: ${e.message}")
+            }
+        } else {
+            return videoDir
+        }
+
+        return uploadFileDir()
+    }
+
+    fun cacheFileDir(): File {
+        val cacheDir = File(rootFileDir(), "cache")
+
+        if (!cacheDir.exists()) {
+            try {
+                if (cacheDir.mkdirs()) {
+                    return cacheDir
+                }
+            } catch (e: Exception) {
+                Timber.e("Create cache dir failure, reason: ${e.message}")
+            }
+        } else {
+            return cacheDir
+        }
+
+        return backFileDir()
+    }
+
     private fun backFileDir() = AirControllerApp.getInstance().filesDir
 }
