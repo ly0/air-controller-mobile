@@ -3,6 +3,7 @@ package com.youngfeng.android.assistant.manager
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.net.wifi.WifiManager.MulticastLock
 import android.os.Build
 import android.text.format.Formatter
 import com.youngfeng.android.assistant.Constants
@@ -59,24 +60,42 @@ interface DeviceDiscoverManager {
  * 设备发现管理类实现接口.
  */
 class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
-    private var mDatagramSocket: DatagramSocket? = null
+    private var mReceiveSocket: DatagramSocket? = null
+    private val mBroadcastInterfaces = mutableListOf<BroadcastInterface>()
     private var isStarted = false
     private var onDeviceDiscover: ((device: Device) -> Unit)? = null
     private val mTimer by lazy { Timer() }
+    private var mMulticastLock: MulticastLock? = null
 
     private val mExecutor by lazy {
         Executors.newSingleThreadExecutor()
     }
 
+    // 存储接口信息和对应的socket
+    data class BroadcastInterface(
+        val name: String,
+        val ipAddress: String,
+        val broadcastAddress: String,
+        val socket: DatagramSocket
+    )
+
     companion object {
         private const val TAG = "DeviceDiscoverManager"
+        private const val MULTICAST_LOCK_TAG = "AirController:DeviceDiscovery"
     }
 
     override fun startDiscover() {
         mExecutor.submit {
-            if (null == mDatagramSocket) {
-                mDatagramSocket = DatagramSocket(Constants.Port.UDP_DEVICE_DISCOVER)
+            // 获取多播锁（在热点模式下必需）
+            acquireMulticastLock()
+
+            // 创建接收socket（只需要一个来接收响应）
+            if (null == mReceiveSocket) {
+                mReceiveSocket = DatagramSocket(Constants.Port.UDP_DEVICE_DISCOVER)
             }
+
+            // 为每个网络接口创建发送socket
+            setupBroadcastSockets()
 
             mTimer.schedule(
                 object : TimerTask() {
@@ -90,7 +109,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             while (!isStarted) {
                 val buffer = ByteArray(1024)
                 val packet = DatagramPacket(buffer, buffer.size)
-                mDatagramSocket?.receive(packet)
+                mReceiveSocket?.receive(packet)
 
                 val data = String(buffer)
                 if (isValidResponse(data)) {
@@ -103,6 +122,167 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             }
 
             isStarted = true
+        }
+    }
+
+    /**
+     * 为每个网络接口创建广播socket
+     */
+    private fun setupBroadcastSockets() {
+        try {
+            // 清理旧的广播接口
+            mBroadcastInterfaces.forEach { it.socket.close() }
+            mBroadcastInterfaces.clear()
+
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+
+                // 跳过未启用或回环接口
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    Timber.d("Skipping interface ${networkInterface.name}: up=${networkInterface.isUp}, loopback=${networkInterface.isLoopback}")
+                    continue
+                }
+
+                // 检查接口属性
+                val interfaceName = networkInterface.name.lowercase()
+                val supportsMulticast = try {
+                    networkInterface.supportsMulticast()
+                } catch (e: Exception) {
+                    // 某些接口可能抛出异常，假设支持
+                    Timber.w("Failed to check multicast support for $interfaceName: ${e.message}")
+                    true
+                }
+
+                Timber.d("Processing interface $interfaceName, multicast support: $supportsMulticast")
+
+                // 获取该接口的IP地址和广播地址
+                val interfaceAddresses = networkInterface.interfaceAddresses
+                for (interfaceAddress in interfaceAddresses) {
+                    val address = interfaceAddress.address
+                    val broadcast = interfaceAddress.broadcast
+
+                    // 只处理IPv4地址
+                    if (address != null && !address.isLoopbackAddress &&
+                        address.hostAddress != null && !address.hostAddress.contains(":")
+                    ) {
+
+                        val hostAddress = address.hostAddress
+
+                        // 跳过链路本地地址
+                        if (hostAddress.startsWith("169.254.") || hostAddress.startsWith("127.")) {
+                            Timber.d("Skipping link-local address: $hostAddress on $interfaceName")
+                            continue
+                        }
+
+                        Timber.d("Found valid IP on $interfaceName: $hostAddress")
+
+                        // 计算广播地址
+                        val broadcastAddr = when {
+                            broadcast != null -> broadcast.hostAddress
+                            // 如果没有广播地址，根据子网掩码计算
+                            else -> calculateBroadcastAddress(hostAddress, interfaceAddress.networkPrefixLength)
+                        }
+
+                        if (broadcastAddr != null) {
+                            // 尝试创建并配置socket
+                            var socket: DatagramSocket? = null
+                            var isBound = false
+
+                            try {
+                                // 对于热点接口，尝试绑定到特定地址
+                                if (interfaceName.contains("ap") || interfaceName.contains("swlan") ||
+                                    interfaceName.contains("tether") || interfaceName.contains("softap")
+                                ) {
+                                    try {
+                                        socket = DatagramSocket(null)
+                                        socket.reuseAddress = true
+                                        socket.broadcast = true
+                                        val bindAddress = InetSocketAddress(address, 0)
+                                        socket.bind(bindAddress)
+                                        isBound = true
+                                        Timber.d("Bound socket to $hostAddress on hotspot interface $interfaceName")
+                                    } catch (e: Exception) {
+                                        Timber.w("Failed to bind hotspot interface $interfaceName: ${e.message}")
+                                        socket?.close()
+                                        socket = null
+                                    }
+                                }
+
+                                // 如果是WiFi接口或绑定失败，使用未绑定的socket
+                                if (socket == null) {
+                                    socket = DatagramSocket()
+                                    socket.broadcast = true
+                                    Timber.d("Created unbound socket for $interfaceName")
+                                }
+
+                                val broadcastInterface = BroadcastInterface(
+                                    name = interfaceName,
+                                    ipAddress = hostAddress,
+                                    broadcastAddress = broadcastAddr,
+                                    socket = socket
+                                )
+
+                                mBroadcastInterfaces.add(broadcastInterface)
+                                val bindStatus = if (isBound) "已绑定" else "未绑定"
+                                Timber.d("Added broadcast interface: $interfaceName, IP: $hostAddress, Broadcast: $broadcastAddr ($bindStatus)")
+                                LogManager.log("添加广播接口($bindStatus): $interfaceName ($hostAddress -> $broadcastAddr)", LogType.NETWORK)
+                            } catch (e: Exception) {
+                                Timber.e("Failed to create socket for $interfaceName: ${e.message}")
+                                socket?.close()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 如果没有找到合适的接口，创建一个默认的
+            if (mBroadcastInterfaces.isEmpty()) {
+                try {
+                    val defaultSocket = DatagramSocket()
+                    defaultSocket.broadcast = true
+
+                    val defaultInterface = BroadcastInterface(
+                        name = "default",
+                        ipAddress = "0.0.0.0",
+                        broadcastAddress = "255.255.255.255",
+                        socket = defaultSocket
+                    )
+
+                    mBroadcastInterfaces.add(defaultInterface)
+                    Timber.d("Created default broadcast interface")
+                } catch (e: Exception) {
+                    Timber.e("Failed to create default socket: ${e.message}")
+                }
+            }
+
+            Timber.d("Total broadcast interfaces: ${mBroadcastInterfaces.size}")
+        } catch (e: Exception) {
+            Timber.e("Error setting up broadcast sockets: ${e.message}")
+        }
+    }
+
+    /**
+     * 根据IP地址和前缀长度计算广播地址
+     */
+    private fun calculateBroadcastAddress(ipAddress: String, prefixLength: Short): String {
+        return try {
+            val parts = ipAddress.split(".")
+            if (parts.size != 4) return "255.255.255.255"
+
+            val ip = parts.map { it.toInt() }.toIntArray()
+            val netmask = (-1 shl (32 - prefixLength)).toInt()
+
+            val broadcast = IntArray(4)
+            for (i in 0..3) {
+                val maskByte = (netmask shr (24 - i * 8)) and 0xFF
+                broadcast[i] = ip[i] or (maskByte.inv() and 0xFF)
+            }
+
+            broadcast.joinToString(".")
+        } catch (e: Exception) {
+            Timber.e("Error calculating broadcast address: ${e.message}")
+            "255.255.255.255"
         }
     }
 
@@ -135,24 +315,56 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     @SuppressLint("WifiManagerLeak")
     private fun sendBroadcastMsg() {
         try {
-            val ip = getDeviceIpAddress()
             val name = Build.MODEL
 
-            val searchCmd = "${Constants.SEARCH_PREFIX}${
-            Constants
-                .RANDOM_STR_SEARCH
-            }#${Constants.PLATFORM_ANDROID}#$name#$ip"
+            // 在所有接口上发送广播
+            var sentCount = 0
+            val sentDetails = mutableListOf<String>()
 
-            val cmdByteArray = searchCmd.toByteArray()
+            for (broadcastInterface in mBroadcastInterfaces) {
+                try {
+                    // 使用该接口的IP地址
+                    val searchCmd = "${Constants.SEARCH_PREFIX}${
+                    Constants
+                        .RANDOM_STR_SEARCH
+                    }#${Constants.PLATFORM_ANDROID}#$name#${broadcastInterface.ipAddress}"
 
-            val address = InetSocketAddress("255.255.255.255", Constants.Port.UDP_DEVICE_DISCOVER)
-            val packet = DatagramPacket(cmdByteArray, cmdByteArray.size, address)
+                    val cmdByteArray = searchCmd.toByteArray()
 
-            Timber.d("Send broadcast msg to 255.255.255.255, device IP: $ip")
-            LogManager.log("发送广播包 (IP: $ip)", LogType.NETWORK)
-            mDatagramSocket?.send(packet)
+                    // 使用该接口特定的广播地址
+                    val address = InetSocketAddress(
+                        broadcastInterface.broadcastAddress,
+                        Constants.Port.UDP_DEVICE_DISCOVER
+                    )
+                    val packet = DatagramPacket(cmdByteArray, cmdByteArray.size, address)
+
+                    broadcastInterface.socket.send(packet)
+                    sentCount++
+
+                    val detail = "${broadcastInterface.name}(${broadcastInterface.ipAddress}->${broadcastInterface.broadcastAddress})"
+                    sentDetails.add(detail)
+
+                    Timber.d("Sent broadcast on ${broadcastInterface.name}: ${broadcastInterface.ipAddress} -> ${broadcastInterface.broadcastAddress}")
+                } catch (e: Exception) {
+                    Timber.e("Failed to send on ${broadcastInterface.name}: ${e.message}")
+                }
+            }
+
+            if (sentCount > 0) {
+                Timber.d("Successfully sent broadcast on $sentCount interfaces")
+                LogManager.log("发送广播: ${sentDetails.joinToString(", ")}", LogType.NETWORK)
+            } else {
+                Timber.w("Failed to send broadcast on any interface")
+                LogManager.log("广播发送失败", LogType.ERROR)
+
+                // 如果没有成功发送，尝试重新设置
+                if (mBroadcastInterfaces.isNotEmpty()) {
+                    Timber.w("Recreating broadcast interfaces")
+                    setupBroadcastSockets()
+                }
+            }
         } catch (e: Exception) {
-            Timber.e(e.message ?: "Unknown error")
+            Timber.e("Error in sendBroadcastMsg: ${e.message}")
         }
     }
 
@@ -229,9 +441,53 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     }
 
     override fun stopDiscover() {
-        mDatagramSocket?.close()
+        mReceiveSocket?.close()
+        mBroadcastInterfaces.forEach { it.socket.close() }
+        mBroadcastInterfaces.clear()
         mTimer.cancel()
         mExecutor.shutdownNow()
         isStarted = false
+
+        // 释放多播锁
+        releaseMulticastLock()
+    }
+
+    /**
+     * 获取多播锁，在热点模式下发送广播需要
+     */
+    @SuppressLint("WifiManagerLeak")
+    private fun acquireMulticastLock() {
+        try {
+            val context = AirControllerApp.getInstance()
+            val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+            if (mMulticastLock == null) {
+                mMulticastLock = wifiManager.createMulticastLock(MULTICAST_LOCK_TAG)
+                mMulticastLock?.setReferenceCounted(false)
+            }
+
+            mMulticastLock?.acquire()
+            Timber.d("Multicast lock acquired")
+            LogManager.log("获取多播锁成功", LogType.NETWORK)
+        } catch (e: Exception) {
+            Timber.e("Failed to acquire multicast lock: ${e.message}")
+            LogManager.log("获取多播锁失败: ${e.message}", LogType.ERROR)
+        }
+    }
+
+    /**
+     * 释放多播锁
+     */
+    private fun releaseMulticastLock() {
+        try {
+            if (mMulticastLock?.isHeld == true) {
+                mMulticastLock?.release()
+                Timber.d("Multicast lock released")
+                LogManager.log("释放多播锁", LogType.NETWORK)
+            }
+            mMulticastLock = null
+        } catch (e: Exception) {
+            Timber.e("Failed to release multicast lock: ${e.message}")
+        }
     }
 }
