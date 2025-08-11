@@ -24,6 +24,9 @@
     <string name="label_device_info">Mobile Information</string>
     <string name="label_device_name">Mobile Name：</string>
     <string name="label_wifi_name">WLAN Name：</string>
+    <string name="label_network_mode">Network Mode：</string>
+    <string name="label_wifi_ip">WiFi IP：</string>
+    <string name="label_hotspot_ip">Hotspot IP：</string>
     <string name="label_connection_info">Connection Information</string>
     <string name="label_computer_name">Computer Name：</string>
     <string name="label_computer_ip">Ip Address：</string>
@@ -76,4 +79,6 @@
     <string name="upload_audio_file_fail">Upload audios failure</string>
     <string name="upload_video_file_failure">Upload videos failure</string>
     <string name="working">Working -_-</string>
+    <string name="label_activity_logs">Activity Logs</string>
+    <string name="clear_logs">Clear</string>
 </resources>

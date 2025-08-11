@@ -8,6 +8,7 @@ import android.text.format.Formatter
 import com.youngfeng.android.assistant.Constants
 import com.youngfeng.android.assistant.app.AirControllerApp
 import com.youngfeng.android.assistant.model.Device
+import com.youngfeng.android.assistant.model.LogType
 import timber.log.Timber
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -95,6 +96,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
                 if (isValidResponse(data)) {
                     val device = convertToDevice(data)
                     Timber.d("当前设备：${device.name}, platform: ${device.platform}, ip address: ${device.ip}")
+                    LogManager.log("发现设备: ${device.name} (${device.ip})", LogType.SUCCESS)
                 } else {
                     Timber.d("It's not valid, data: $data")
                 }
@@ -147,6 +149,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             val packet = DatagramPacket(cmdByteArray, cmdByteArray.size, address)
 
             Timber.d("Send broadcast msg to 255.255.255.255, device IP: $ip")
+            LogManager.log("发送广播包 (IP: $ip)", LogType.NETWORK)
             mDatagramSocket?.send(packet)
         } catch (e: Exception) {
             Timber.e(e.message ?: "Unknown error")
@@ -156,6 +159,7 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     /**
      * 获取设备IP地址，支持WiFi连接和热点模式
      */
+    @SuppressLint("WifiManagerLeak")
     private fun getDeviceIpAddress(): String {
         val context = AirControllerApp.getInstance()
         val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -171,38 +175,38 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
         }
 
         // 如果WiFi IP无效，尝试获取热点模式的IP地址
+        return getHotspotIpAddressFromInterface()
+    }
+
+    /**
+     * 从网络接口获取热点IP地址
+     */
+    private fun getHotspotIpAddressFromInterface(): String {
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
                 val networkInterface = interfaces.nextElement()
-                val interfaceName = networkInterface.name.lowercase()
 
-                // 热点接口通常是 wlan0, ap0, swlan0 等
-                val isHotspotInterface = interfaceName.contains("wlan") ||
-                    interfaceName.contains("ap") ||
-                    interfaceName.contains("swlan") ||
-                    interfaceName.contains("tether")
+                // 跳过未启用或回环接口
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    continue
+                }
 
-                if (isHotspotInterface) {
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+                    if (!address.isLoopbackAddress && address is InetAddress) {
+                        val hostAddress = address.hostAddress
+                        // 过滤IPv6地址和链路本地地址
+                        if (hostAddress != null &&
+                            !hostAddress.contains(":") &&
+                            !hostAddress.startsWith("127.") &&
+                            !hostAddress.startsWith("169.254.")
+                        ) {
 
-                    val addresses = networkInterface.inetAddresses
-                    while (addresses.hasMoreElements()) {
-                        val address = addresses.nextElement()
-                        if (!address.isLoopbackAddress && address is InetAddress) {
-                            val hostAddress = address.hostAddress
-                            // 过滤IPv6地址和链路本地地址
-                            val isValidIPv4 = hostAddress != null &&
-                                !hostAddress.contains(":") &&
-                                !hostAddress.startsWith("127.") &&
-                                !hostAddress.startsWith("169.254.")
-
-                            if (isValidIPv4) {
-                                // 热点IP通常是 192.168.43.1 或 192.168.49.1
-                                if (hostAddress.startsWith("192.168.")) {
-                                    Timber.d("Using Hotspot IP from interface $interfaceName: $hostAddress")
-                                    return hostAddress
-                                }
-                            }
+                            // 返回找到的第一个有效的IPv4地址
+                            Timber.d("Found IP from interface ${networkInterface.name}: $hostAddress")
+                            return hostAddress
                         }
                     }
                 }
@@ -211,13 +215,9 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             Timber.e("Error getting network interfaces: ${e.message}")
         }
 
-        // 如果还是没有找到，返回默认值
-        Timber.w("Could not determine device IP address, using default")
+        // 如果没有找到任何有效IP，返回0.0.0.0表示失败
+        Timber.w("Could not determine device IP address")
         return "0.0.0.0"
-    }
-
-    private fun isValidData(data: String): Boolean {
-        return data.startsWith("${Constants.SEARCH_PREFIX}${Constants.RANDOM_STR_SEARCH}#")
     }
 
     override fun isStarted(): Boolean {

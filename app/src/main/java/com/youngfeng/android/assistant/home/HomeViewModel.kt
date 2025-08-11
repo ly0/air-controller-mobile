@@ -5,6 +5,8 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.youngfeng.android.assistant.event.RequestDisconnectClientEvent
 import com.youngfeng.android.assistant.model.DesktopInfo
+import com.youngfeng.android.assistant.model.LogEntry
+import com.youngfeng.android.assistant.model.LogType
 import com.youngfeng.android.assistant.socket.CmdSocketServer
 import org.greenrobot.eventbus.EventBus
 
@@ -26,6 +28,18 @@ class HomeViewModel : ViewModel() {
 
     private val _isAllPermissionsGranted = MutableLiveData<Boolean>()
     val isAllPermissionsGranted: LiveData<Boolean> = _isAllPermissionsGranted
+
+    private val _wifiIpAddress = MutableLiveData<String>()
+    val wifiIpAddress: LiveData<String> = _wifiIpAddress
+
+    private val _hotspotIpAddress = MutableLiveData<String>()
+    val hotspotIpAddress: LiveData<String> = _hotspotIpAddress
+
+    private val _networkMode = MutableLiveData<String>()
+    val networkMode: LiveData<String> = _networkMode
+
+    private val _logEntries = MutableLiveData<MutableList<LogEntry>>(mutableListOf())
+    val logEntries: LiveData<MutableList<LogEntry>> = _logEntries
 
     fun setWifiConnectStatus(isConnected: Boolean) {
         _isWifiConnected.value = isConnected
@@ -51,9 +65,37 @@ class HomeViewModel : ViewModel() {
         _isAllPermissionsGranted.value = isGranted
     }
 
+    fun setWifiIpAddress(ipAddress: String?) {
+        _wifiIpAddress.value = ipAddress ?: "N/A"
+    }
+
+    fun setHotspotIpAddress(ipAddress: String?) {
+        _hotspotIpAddress.value = ipAddress ?: "N/A"
+    }
+
+    fun setNetworkMode(mode: String) {
+        _networkMode.value = mode
+    }
+
     fun disconnect() {
         CmdSocketServer.getInstance().disconnect()
         EventBus.getDefault().post(RequestDisconnectClientEvent())
         _isDeviceConnected.value = false
+    }
+
+    fun addLogEntry(message: String, type: LogType = LogType.INFO) {
+        val currentList = _logEntries.value ?: mutableListOf()
+        currentList.add(0, LogEntry(message = message, type = type))
+
+        // Keep only the latest 100 entries
+        if (currentList.size > 100) {
+            currentList.removeAt(currentList.size - 1)
+        }
+
+        _logEntries.value = currentList
+    }
+
+    fun clearLogs() {
+        _logEntries.value = mutableListOf()
     }
 }

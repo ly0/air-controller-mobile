@@ -24,6 +24,9 @@
     <string name="label_device_info">机型信息</string>
     <string name="label_device_name">设备名称：</string>
     <string name="label_wifi_name">无线网络：</string>
+    <string name="label_network_mode">网络模式：</string>
+    <string name="label_wifi_ip">WiFi IP：</string>
+    <string name="label_hotspot_ip">热点IP：</string>
     <string name="label_connection_info">连接信息</string>
     <string name="label_computer_name">电脑名称：</string>
     <string name="label_computer_ip">电脑地址：</string>
@@ -76,4 +79,6 @@
     <string name="upload_audio_file_fail">上传音频失败</string>
     <string name="upload_video_file_failure">上传视频失败</string>
     <string name="working">工作中 -_- </string>
+    <string name="label_activity_logs">活动日志</string>
+    <string name="clear_logs">清空</string>
 </resources>

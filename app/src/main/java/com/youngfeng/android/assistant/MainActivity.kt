@@ -23,7 +23,9 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.youngfeng.android.assistant.about.AboutActivity
+import com.youngfeng.android.assistant.adapter.LogAdapter
 import com.youngfeng.android.assistant.databinding.ActivityMainBinding
 import com.youngfeng.android.assistant.event.BatchUninstallEvent
 import com.youngfeng.android.assistant.event.DeviceConnectEvent
@@ -32,8 +34,10 @@ import com.youngfeng.android.assistant.event.DeviceReportEvent
 import com.youngfeng.android.assistant.event.Permission
 import com.youngfeng.android.assistant.event.RequestPermissionsEvent
 import com.youngfeng.android.assistant.home.HomeViewModel
+import com.youngfeng.android.assistant.manager.LogEvent
 import com.youngfeng.android.assistant.model.DesktopInfo
 import com.youngfeng.android.assistant.model.Device
+import com.youngfeng.android.assistant.model.LogType
 import com.youngfeng.android.assistant.scan.ScanActivity
 import com.youngfeng.android.assistant.service.NetworkService
 import com.youngfeng.android.assistant.util.CommonUtil
@@ -81,6 +85,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         com.youngfeng.android.assistant.manager.PermissionManager.with(this)
     }
     private var mHotspotCheckTimer: Timer? = null
+    private lateinit var mLogAdapter: LogAdapter
 
     companion object {
         private const val TAG = "MainActivity"
@@ -97,6 +102,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         mViewDataBinding = DataBindingUtil.setContentView(this, R.layout.activity_main)
 
         initializeUI()
+        setupLogRecyclerView()
 
         registerNetworkListener()
         setUpDeviceInfo()
@@ -114,6 +120,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     }
 
     private fun startNetworkService() {
+        mViewModel.addLogEntry("启动网络服务", LogType.NETWORK)
         val intent = Intent().setClass(this, NetworkService::class.java)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -155,6 +162,28 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             this.textAuthorizeNow.setOnClickListener {
                 CommonUtil.openAppDetailSettings(this@MainActivity)
             }
+
+            this.textClearLogs.setOnClickListener {
+                mViewModel.clearLogs()
+                mViewModel.addLogEntry("日志已清空", LogType.INFO)
+            }
+        }
+    }
+
+    private fun setupLogRecyclerView() {
+        mLogAdapter = LogAdapter()
+        mViewDataBinding?.recyclerLogs?.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = mLogAdapter
+        }
+
+        // Observe log entries
+        mViewModel.logEntries.observe(this) { logs ->
+            mLogAdapter.submitList(logs)
+            // Auto scroll to top for latest log
+            if (logs.isNotEmpty()) {
+                mViewDataBinding?.recyclerLogs?.scrollToPosition(0)
+            }
         }
     }
 
@@ -180,6 +209,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onAvailable(network)
 
                         runOnUiThread {
+                            mViewModel.addLogEntry("网络已连接", LogType.NETWORK)
                             updateNetworkStatus()
                         }
                     }
@@ -188,6 +218,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onLost(network)
 
                         runOnUiThread {
+                            mViewModel.addLogEntry("网络已断开", LogType.WARNING)
                             updateNetworkStatus()
                         }
                     }
@@ -203,6 +234,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onAvailable(network)
 
                         runOnUiThread {
+                            mViewModel.addLogEntry("网络已连接", LogType.NETWORK)
                             updateNetworkStatus()
                         }
                     }
@@ -211,6 +243,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         super.onLost(network)
 
                         runOnUiThread {
+                            mViewModel.addLogEntry("网络已断开", LogType.WARNING)
                             updateNetworkStatus()
                         }
                     }
@@ -228,28 +261,74 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         if (isNetworkAvailable) {
             val networkStatus = NetworkUtil.getNetworkStatus(this)
             Timber.d("Network available: $networkStatus")
+            mViewModel.addLogEntry("网络状态: $networkStatus", LogType.NETWORK)
 
-            if (NetworkUtil.isHotspotEnabled(this)) {
-                mViewModel.setWlanName("Hotspot Mode")
-            } else if (NetworkUtil.isWifiConnected(this)) {
-                val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-                val info = wifiManager.connectionInfo
-                val ssid = info.ssid
-                mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+            // 设置网络模式
+            mViewModel.setNetworkMode(networkStatus)
+
+            // 分别获取并设置WiFi IP和热点IP
+            val wifiIp = NetworkUtil.getWifiIpAddress(this)
+            val hotspotIp = NetworkUtil.getHotspotIpAddress(this)
+
+            mViewModel.setWifiIpAddress(wifiIp)
+            mViewModel.setHotspotIpAddress(hotspotIp)
+
+            Timber.d("WiFi IP: ${wifiIp ?: "N/A"}, Hotspot IP: ${hotspotIp ?: "N/A"}")
+
+            // 根据网络状态设置无线网络名称
+            when {
+                NetworkUtil.isWifiConnected(this) -> {
+                    // 连接了WiFi，显示AP名称
+                    val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                    val info = wifiManager.connectionInfo
+                    val ssid = info.ssid
+                    mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+                }
+                NetworkUtil.isHotspotEnabled(this) -> {
+                    // 仅开启热点，没有连接WiFi
+                    mViewModel.setWlanName("Hotspot Mode")
+                }
+                else -> {
+                    mViewModel.setWlanName("N/A")
+                }
             }
+        } else {
+            mViewModel.setNetworkMode("No Network")
+            mViewModel.setWifiIpAddress(null)
+            mViewModel.setHotspotIpAddress(null)
         }
     }
 
     private fun setUpDeviceInfo() {
         mViewModel.setDeviceName(Build.MODEL)
 
-        if (NetworkUtil.isHotspotEnabled(this)) {
-            mViewModel.setWlanName("Hotspot Mode")
-        } else {
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val info = wifiManager.connectionInfo
-            val ssid = info.ssid
-            mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+        // 获取网络状态
+        val networkStatus = NetworkUtil.getNetworkStatus(this)
+        mViewModel.setNetworkMode(networkStatus)
+
+        // 分别获取WiFi IP和热点IP
+        val wifiIp = NetworkUtil.getWifiIpAddress(this)
+        val hotspotIp = NetworkUtil.getHotspotIpAddress(this)
+
+        mViewModel.setWifiIpAddress(wifiIp)
+        mViewModel.setHotspotIpAddress(hotspotIp)
+
+        // 根据网络状态设置无线网络名称
+        when {
+            NetworkUtil.isWifiConnected(this) -> {
+                // 连接了WiFi，显示AP名称
+                val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                val info = wifiManager.connectionInfo
+                val ssid = info.ssid
+                mViewModel.setWlanName(ssid?.replace(oldValue = "\"", newValue = "") ?: "Unknown SSID")
+            }
+            NetworkUtil.isHotspotEnabled(this) -> {
+                // 仅开启热点，没有连接WiFi
+                mViewModel.setWlanName("Hotspot Mode")
+            }
+            else -> {
+                mViewModel.setWlanName("N/A")
+            }
         }
     }
 
@@ -300,11 +379,13 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onDeviceConnected(event: DeviceConnectEvent) {
+        mViewModel.addLogEntry("设备已连接", LogType.SUCCESS)
         mViewModel.setDeviceConnected(true)
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onDeviceDisconnected(event: DeviceDisconnectEvent) {
+        mViewModel.addLogEntry("设备已断开", LogType.WARNING)
         mViewModel.setDeviceConnected(false)
     }
 
@@ -318,6 +399,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             else -> "MacOS"
         }
         val desktopInfo = DesktopInfo(event.device.name, event.device.ip, os)
+        mViewModel.addLogEntry("收到设备信息: ${event.device.name} (${event.device.ip})", LogType.INFO)
         mViewModel.setDesktopInfo(desktopInfo)
     }
 
@@ -334,6 +416,11 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onLogEvent(event: LogEvent) {
+        mViewModel.addLogEntry(event.logEntry.message, event.logEntry.type)
+    }
+
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onRequestPermissions(event: RequestPermissionsEvent) {
         val permissions = event.permissions.map {
@@ -411,6 +498,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     }
 
     private fun startHotspotCheckTimer() {
+        mViewModel.addLogEntry("开始监控热点状态", LogType.INFO)
         mHotspotCheckTimer?.cancel()
         mHotspotCheckTimer = Timer()
         mHotspotCheckTimer?.scheduleAtFixedRate(

@@ -11,6 +11,8 @@ import androidx.appcompat.app.AppCompatActivity
 import cn.bingoogolapple.qrcode.core.QRCodeView
 import cn.bingoogolapple.qrcode.zxing.ZXingView
 import com.youngfeng.android.assistant.R
+import com.youngfeng.android.assistant.manager.LogManager
+import com.youngfeng.android.assistant.model.LogType
 import pub.devrel.easypermissions.EasyPermissions
 import pub.devrel.easypermissions.PermissionRequest
 
@@ -64,6 +66,7 @@ class ScanActivity : AppCompatActivity(), QRCodeView.Delegate, EasyPermissions.P
 
     private fun startSpot() {
         if (!isSpotStarted) {
+            LogManager.log("启动二维码扫描", LogType.INFO)
             mZXingView.startCamera()
             mZXingView.startSpotAndShowRect()
             isSpotStarted = true
@@ -93,6 +96,7 @@ class ScanActivity : AppCompatActivity(), QRCodeView.Delegate, EasyPermissions.P
 
     override fun onScanQRCodeSuccess(result: String) {
         Log.d(TAG, "onScanQRCodeSuccess: $result")
+        LogManager.log("扫描二维码成功: $result", LogType.SUCCESS)
 
         if (result.startsWith("http://") || result.startsWith("https://")) {
             openExternalBrowser(result)
