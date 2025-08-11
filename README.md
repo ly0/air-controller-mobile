@@ -1,6 +1,7 @@
 # AirController
+Original Repo:  https://github.com/air-controller/air-controller-mobile
 
-[中文文档](https://github.com/air-controller/air-controller-mobile/blob/master/README_zh_CN.md)
+[中文文档](https://github.com/ly0/air-controller-mobile/blob/master/README_zh_CN.md)
 
 AirController is a powerful, handy, and cross-platform desktop application, it can manage your android phone easily without connecting to a computer.
 
@@ -15,13 +16,13 @@ Inspired by HandShaker, I hope it becomes your favorite android assistant app on
 
 Open the link below and choose the latest version apk file to install.
 
-[https://github.com/air-controller/air-controller-mobile/releases](https://github.com/air-controller/air-controller-mobile/releases)
+[https://github.com/ly0/air-controller-mobile/releases](https://github.com/ly0/air-controller-mobile/releases)
 
 2. Install the latest AirController desktop app on your computer.
 
 Open the link below and choose the latest file to install.
 
-[https://github.com/air-controller/air-controller-desktop/releases](https://github.com/air-controller/air-controller-desktop/releases)
+[https://github.com/ly0/air-controller-desktop/releases](https://github.com/ly0/air-controller-desktop/releases)
 
 * Windows users choose the exe suffix file, please.
 
@@ -76,27 +77,10 @@ Attention: you need to build it on the computer running the same platform. Eg: B
 
 If you got any questions when using this app, please click the link below and submit the issue detail, I will fix it quickly.
 
-[https://github.com/air-controller/air-controller-desktop/issues](https://github.com/air-controller/air-controller-desktop/issues)
+[https://github.com/ly0/air-controller-desktop/issues](https://github.com/ly0/air-controller-desktop/issues)
 
 # Feature Suggestion
 
 If you want more features, just tell me by issue, please.
 
-[https://github.com/air-controller/air-controller-desktop/issues](https://github.com/air-controller/air-controller-desktop/issues)
-
-
-# Support
-
-I will really appreciate it if you want to support me. For now, just star me please, that's a big support for me.
-
-If you are a UI designer, and you can provide me with a better design resource, that will be perfect.
-
-[![Support Me](https://raw.githubusercontent.com/yuanhoujun/material/main/Sponsor/aifadian.png)](https://afdian.net/@ouyangfeng2016)
-
-# Stay In Touch
-QQ Group: [329673958](https://im.qq.com/index)
-
-Telegram Channel: [AirController](https://t.me/aircontroller2022)
-
-Email: [ouyangfeng2016@gmail.com](mailto:ouyangfeng2016@gmail.com)
-
+[https://github.com/ly0/air-controller-desktop/issues](https://github.com/ly0/air-controller-desktop/issues)
