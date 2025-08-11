@@ -176,19 +176,27 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
             while (interfaces.hasMoreElements()) {
                 val networkInterface = interfaces.nextElement()
                 val interfaceName = networkInterface.name.lowercase()
-                
+
                 // 热点接口通常是 wlan0, ap0, swlan0 等
-                if (interfaceName.contains("wlan") || interfaceName.contains("ap") || 
-                    interfaceName.contains("swlan") || interfaceName.contains("tether")) {
-                    
+                val isHotspotInterface = interfaceName.contains("wlan") ||
+                    interfaceName.contains("ap") ||
+                    interfaceName.contains("swlan") ||
+                    interfaceName.contains("tether")
+
+                if (isHotspotInterface) {
+
                     val addresses = networkInterface.inetAddresses
                     while (addresses.hasMoreElements()) {
                         val address = addresses.nextElement()
                         if (!address.isLoopbackAddress && address is InetAddress) {
                             val hostAddress = address.hostAddress
                             // 过滤IPv6地址和链路本地地址
-                            if (hostAddress != null && !hostAddress.contains(":") && 
-                                !hostAddress.startsWith("127.") && !hostAddress.startsWith("169.254.")) {
+                            val isValidIPv4 = hostAddress != null &&
+                                !hostAddress.contains(":") &&
+                                !hostAddress.startsWith("127.") &&
+                                !hostAddress.startsWith("169.254.")
+
+                            if (isValidIPv4) {
                                 // 热点IP通常是 192.168.43.1 或 192.168.49.1
                                 if (hostAddress.startsWith("192.168.")) {
                                     Timber.d("Using Hotspot IP from interface $interfaceName: $hostAddress")
