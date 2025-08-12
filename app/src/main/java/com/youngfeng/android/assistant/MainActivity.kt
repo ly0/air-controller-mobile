@@ -56,6 +56,7 @@ import java.util.TimerTask
 class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private var mViewDataBinding: ActivityMainBinding? = null
     private val mViewModel by viewModels<HomeViewModel>()
+    private var isProcessingStateChange = false
     private val mDisconnectConfirmDialog by lazy {
         AlertDialog.Builder(this)
             .setPositiveButton(
@@ -111,7 +112,9 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             }
             .setNegativeButton(R.string.cancel) { dialog, _ ->
                 dialog.dismiss()
+                isProcessingStateChange = true
                 mViewDataBinding?.switchAircontroller?.isChecked = true
+                isProcessingStateChange = false
             }
             .create()
     }
@@ -124,7 +127,9 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             }
             .setNegativeButton(R.string.cancel) { dialog, _ ->
                 dialog.dismiss()
+                isProcessingStateChange = true
                 mViewDataBinding?.switchAircontroller?.isChecked = false
+                isProcessingStateChange = false
             }
             .create()
     }
@@ -159,7 +164,20 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
         registerUninstallLauncher()
         startNetworkService()
-        startHotspotCheckTimer()
+
+        // 从SharedPreferences读取服务状态并同步UI
+        val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
+        val isServiceEnabled = prefs.getBoolean("service_enabled", true)
+        mViewModel.setAirControllerEnabled(isServiceEnabled)
+
+        // 使用标志位避免触发switch的监听器
+        isProcessingStateChange = true
+        mViewDataBinding?.switchAircontroller?.isChecked = isServiceEnabled
+        isProcessingStateChange = false
+
+        if (isServiceEnabled) {
+            startHotspotCheckTimer()
+        }
     }
 
     private fun startNetworkService() {
@@ -227,6 +245,11 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             }
 
             this.switchAircontroller.setOnCheckedChangeListener { _, isChecked ->
+                // 避免在代码更新时触发
+                if (isProcessingStateChange) {
+                    return@setOnCheckedChangeListener
+                }
+
                 if (isChecked) {
                     // Show confirmation dialog when enabling
                     if (!mEnableAirControllerConfirmDialog.isShowing) {
@@ -531,6 +554,24 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         mPermissionManager.requestMultiplePermissions(RC_PERMISSIONS, *permissions)
     }
 
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onAirControllerStateChangedFromService(event: AirControllerStateEvent) {
+        // 当从通知栏切换状态时，同步更新UI
+        mViewModel.setAirControllerEnabled(event.enabled)
+
+        // 使用标志位避免触发switch的监听器
+        isProcessingStateChange = true
+        mViewDataBinding?.switchAircontroller?.isChecked = event.enabled
+        isProcessingStateChange = false
+
+        if (event.enabled) {
+            startHotspotCheckTimer()
+        } else {
+            mHotspotCheckTimer?.cancel()
+            mHotspotCheckTimer = null
+        }
+    }
+
     private fun batchUninstall(packageName: String) {
         val intent = Intent()
         intent.action = Intent.ACTION_DELETE
@@ -611,6 +652,9 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
     private fun disableAirController() {
         mViewModel.setAirControllerEnabled(false)
+        // 保存状态到SharedPreferences
+        val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("service_enabled", false).apply()
         // 停止热点监控
         mHotspotCheckTimer?.cancel()
         mHotspotCheckTimer = null
@@ -625,6 +669,9 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
     private fun enableAirController() {
         mViewModel.setAirControllerEnabled(true)
+        // 保存状态到SharedPreferences
+        val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("service_enabled", true).apply()
         // 重新启动热点监控
         startHotspotCheckTimer()
         // 先发送事件到NetworkService让它启用服务

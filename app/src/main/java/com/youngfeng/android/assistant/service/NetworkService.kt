@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.PowerManager.ON_AFTER_RELEASE
 import android.os.PowerManager.PARTIAL_WAKE_LOCK
+import android.widget.RemoteViews
 import com.google.gson.Gson
 import com.youngfeng.android.assistant.Constants
 import com.youngfeng.android.assistant.MainActivity
@@ -58,16 +59,31 @@ class NetworkService : Service() {
         receiver
     }
 
+    private val mToggleReceiver by lazy {
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == ACTION_TOGGLE_SERVICE) {
+                    toggleService()
+                }
+            }
+        }
+    }
+
     private var mHttpServer: ApplicationEngine? = null
 
     private lateinit var mWakeLock: PowerManager.WakeLock
     private lateinit var heartbeatServer: HeartbeatServerPlus
     private val mGson by lazy { Gson() }
+    private var isAirControllerEnabled = true
+    private var isToggleInProgress = false
 
     private companion object {
         const val DEFAULT_TIMEOUT = 10
         const val RC_NOTIFICATION = 0x1001
+        const val RC_TOGGLE = 0x1002
         const val NOTIFICATION_ID = 1
+        const val ACTION_TOGGLE_SERVICE = "com.youngfeng.android.assistant.ACTION_TOGGLE_SERVICE"
+        const val CHANNEL_ID = "AirControllerChannel"
     }
 
     override fun onCreate() {
@@ -79,98 +95,112 @@ class NetworkService : Service() {
         )
         mWakeLock.acquire(60 * 60 * 1000L)
 
+        // 从SharedPreferences读取服务状态
+        val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
+        isAirControllerEnabled = prefs.getBoolean("service_enabled", true)
+
         // 初始化IP白名单（清空旧记录，默认启用）
         IpWhitelistManager.clear()
         Timber.d("IP whitelist initialized")
+        Timber.d("Service initialized with enabled state: $isAirControllerEnabled")
 
-        CmdSocketServer.getInstance().onOpen = {
-            updateMobileInfo()
-        }
-        CmdSocketServer.getInstance().onCommandReceive {
-            processCmd(it)
-        }
-        CmdSocketServer.getInstance().start()
-
-        heartbeatServer = HeartbeatServerPlus.create()
-        heartbeatServer.addListener(object : HeartbeatListener() {
-            override fun onStart() {
-                super.onStart()
-
-                Timber.d("Heartbeat server start success.")
+        // 只有在服务启用时才启动各项功能
+        if (isAirControllerEnabled) {
+            CmdSocketServer.getInstance().onOpen = {
+                updateMobileInfo()
             }
-
-            override fun onStop() {
-                super.onStop()
-
-                Timber.d("Heartbeat server stop success.")
+            CmdSocketServer.getInstance().onCommandReceive {
+                processCmd(it)
             }
+            CmdSocketServer.getInstance().start()
 
-            override fun onClientTimeout(client: HeartbeatClient) {
-                super.onClientTimeout(client)
+            heartbeatServer = HeartbeatServerPlus.create()
+            heartbeatServer.addListener(object : HeartbeatListener() {
+                override fun onStart() {
+                    super.onStart()
 
-                // 客户端超时，恢复广播
-                DeviceDiscoverManager.getInstance().resumeBroadcast()
-
-                // 从IP白名单中移除该IP
-                val clientIp = heartbeatServer.getConnectedClientIp()
-                if (clientIp != null) {
-                    IpWhitelistManager.removeIp(clientIp)
-                    Timber.d("Removed timeout client IP from whitelist: $clientIp")
+                    Timber.d("Heartbeat server start success.")
                 }
 
-                EventBus.getDefault().post(DeviceDisconnectEvent())
-                Timber.d("Heartbeat server, onClientTimeout.")
-            }
+                override fun onStop() {
+                    super.onStop()
 
-            override fun onClientConnected(client: HeartbeatClient?) {
-                super.onClientConnected(client)
-
-                // 连接成功，暂停广播
-                DeviceDiscoverManager.getInstance().pauseBroadcast()
-
-                // 添加IP到白名单（白名单默认已启用）
-                val clientIp = heartbeatServer.getConnectedClientIp()
-                if (clientIp != null) {
-                    IpWhitelistManager.addIp(clientIp)
-                    Timber.d("Added connected client IP to whitelist: $clientIp")
+                    Timber.d("Heartbeat server stop success.")
                 }
 
-                EventBus.getDefault().post(DeviceConnectEvent())
-                Timber.d("Heartbeat server, onNewClientJoin.")
-            }
+                override fun onClientTimeout(client: HeartbeatClient) {
+                    super.onClientTimeout(client)
 
-            override fun onClientDisconnected() {
-                super.onClientDisconnected()
+                    // 客户端超时，恢复广播
+                    DeviceDiscoverManager.getInstance().resumeBroadcast()
 
-                // 断开连接，恢复广播
-                DeviceDiscoverManager.getInstance().resumeBroadcast()
+                    // 从IP白名单中移除该IP
+                    val clientIp = heartbeatServer.getConnectedClientIp()
+                    if (clientIp != null) {
+                        IpWhitelistManager.removeIp(clientIp)
+                        Timber.d("Removed timeout client IP from whitelist: $clientIp")
+                    }
 
-                // 从IP白名单中移除该IP
-                val clientIp = heartbeatServer.getConnectedClientIp()
-                if (clientIp != null) {
-                    IpWhitelistManager.removeIp(clientIp)
-                    Timber.d("Removed disconnected client IP from whitelist: $clientIp")
+                    EventBus.getDefault().post(DeviceDisconnectEvent())
+                    Timber.d("Heartbeat server, onClientTimeout.")
                 }
 
-                EventBus.getDefault().post(DeviceDisconnectEvent())
+                override fun onClientConnected(client: HeartbeatClient?) {
+                    super.onClientConnected(client)
+
+                    // 连接成功，暂停广播
+                    DeviceDiscoverManager.getInstance().pauseBroadcast()
+
+                    // 添加IP到白名单（白名单默认已启用）
+                    val clientIp = heartbeatServer.getConnectedClientIp()
+                    if (clientIp != null) {
+                        IpWhitelistManager.addIp(clientIp)
+                        Timber.d("Added connected client IP to whitelist: $clientIp")
+                    }
+
+                    EventBus.getDefault().post(DeviceConnectEvent())
+                    Timber.d("Heartbeat server, onNewClientJoin.")
+                }
+
+                override fun onClientDisconnected() {
+                    super.onClientDisconnected()
+
+                    // 断开连接，恢复广播
+                    DeviceDiscoverManager.getInstance().resumeBroadcast()
+
+                    // 从IP白名单中移除该IP
+                    val clientIp = heartbeatServer.getConnectedClientIp()
+                    if (clientIp != null) {
+                        IpWhitelistManager.removeIp(clientIp)
+                        Timber.d("Removed disconnected client IP from whitelist: $clientIp")
+                    }
+
+                    EventBus.getDefault().post(DeviceDisconnectEvent())
+                }
+            })
+            heartbeatServer.start()
+
+            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            registerReceiver(mBatteryReceiver, filter)
+
+            mHttpServer = embeddedServer(Netty, port = Constants.Port.HTTP_SERVER) {
+                configureKtorServer(this@NetworkService)
             }
-        })
-        heartbeatServer.start()
+            mHttpServer?.start(wait = false)
 
-        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        registerReceiver(mBatteryReceiver, filter)
-
-        mHttpServer = embeddedServer(Netty, port = Constants.Port.HTTP_SERVER) {
-            configureKtorServer(this@NetworkService)
+            DeviceDiscoverManager.getInstance().onDeviceDiscover {
+                Timber.d("Device: ip => ${it.ip}, name => ${it.name}, platform => ${it.platform}")
+            }
+            DeviceDiscoverManager.getInstance().startDiscover()
+        } else {
+            Timber.d("Service created but not enabled, skipping initialization")
         }
-        mHttpServer?.start(wait = false)
-
-        DeviceDiscoverManager.getInstance().onDeviceDiscover {
-            Timber.d("Device: ip => ${it.ip}, name => ${it.name}, platform => ${it.platform}")
-        }
-        DeviceDiscoverManager.getInstance().startDiscover()
 
         registerEventBus()
+
+        // Register toggle receiver
+        val toggleFilter = IntentFilter(ACTION_TOGGLE_SERVICE)
+        registerReceiver(mToggleReceiver, toggleFilter)
     }
 
     private fun notifyBatteryChanged() {
@@ -220,10 +250,18 @@ class NetworkService : Service() {
     fun onAirControllerStateChanged(event: AirControllerStateEvent) {
         if (event.enabled) {
             // 启用AirController - 重新启动所有服务
+            isAirControllerEnabled = true
+            saveServiceState(true)
             enableServices()
+            isToggleInProgress = false
+            updateNotification()
         } else {
             // 禁用AirController - 停止所有服务
+            isAirControllerEnabled = false
+            saveServiceState(false)
             disableServices()
+            isToggleInProgress = false
+            updateNotification()
         }
     }
 
@@ -408,36 +446,8 @@ class NetworkService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channelId = "channelId" + System.currentTimeMillis()
-            val channel = NotificationChannel(channelId, resources.getString(R.string.app_name), NotificationManager.IMPORTANCE_HIGH)
-            manager.createNotificationChannel(channel)
-
-            Notification.Builder(this, channelId)
-        } else {
-            Notification.Builder(this)
-        }
-        val nfIntent = Intent(this, MainActivity::class.java)
-        nfIntent.action = Intent.ACTION_MAIN
-        nfIntent.addCategory(Intent.CATEGORY_LAUNCHER)
-
-        val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.getActivity(this, RC_NOTIFICATION, nfIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        } else {
-            PendingIntent.getActivity(this, RC_NOTIFICATION, nfIntent, PendingIntent.FLAG_UPDATE_CURRENT)
-        }
-
-        builder.setContentIntent(pendingIntent)
-            .setContentTitle(getString(R.string.app_name))
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentText(getString(R.string.working))
-            .setWhen(System.currentTimeMillis())
-            .setOngoing(false)
-
-        val notification = builder.build()
+        val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
-
         return START_STICKY
     }
 
@@ -449,7 +459,118 @@ class NetworkService : Service() {
         mHttpServer?.stop(1000, 2000)
         mWakeLock.release()
         unRegisterEventBus()
+        try {
+            unregisterReceiver(mToggleReceiver)
+        } catch (e: Exception) {
+            Timber.e("Error unregistering toggle receiver: ${e.message}")
+        }
         stopForeground(true)
         super.onDestroy()
+    }
+
+    private fun createNotification(): Notification {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(CHANNEL_ID, resources.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW)
+            channel.setShowBadge(false)
+            manager.createNotificationChannel(channel)
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            Notification.Builder(this)
+        }
+
+        // Main intent to open app
+        val nfIntent = Intent(this, MainActivity::class.java)
+        nfIntent.action = Intent.ACTION_MAIN
+        nfIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+
+        val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.getActivity(this, RC_NOTIFICATION, nfIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        } else {
+            PendingIntent.getActivity(this, RC_NOTIFICATION, nfIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+        // Toggle service intent
+        val toggleIntent = Intent(ACTION_TOGGLE_SERVICE)
+        val togglePendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.getBroadcast(this, RC_TOGGLE, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        } else {
+            PendingIntent.getBroadcast(this, RC_TOGGLE, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+        // Create custom notification layout
+        val customView = RemoteViews(packageName, R.layout.notification_custom)
+
+        val statusText = if (isAirControllerEnabled) {
+            getString(R.string.working)
+        } else {
+            getString(R.string.service_stopped)
+        }
+
+        val toggleText = if (isToggleInProgress) {
+            getString(R.string.processing)
+        } else if (isAirControllerEnabled) {
+            getString(R.string.disable)
+        } else {
+            getString(R.string.enable)
+        }
+
+        // Set texts
+        customView.setTextViewText(R.id.notification_title, getString(R.string.app_name))
+        customView.setTextViewText(R.id.notification_text, statusText)
+        customView.setTextViewText(R.id.notification_toggle_button, toggleText)
+
+        // Set button background based on state
+        val buttonBackground = when {
+            isToggleInProgress -> R.drawable.notification_button_gray
+            isAirControllerEnabled -> R.drawable.notification_button_red
+            else -> R.drawable.notification_button_green
+        }
+        customView.setInt(R.id.notification_toggle_button, "setBackgroundResource", buttonBackground)
+
+        // Set button click
+        if (!isToggleInProgress) {
+            customView.setOnClickPendingIntent(R.id.notification_toggle_button, togglePendingIntent)
+        }
+
+        builder.setContentIntent(pendingIntent)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setWhen(System.currentTimeMillis())
+            .setOngoing(true)
+            .setCustomContentView(customView)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            builder.setStyle(Notification.DecoratedCustomViewStyle())
+        }
+
+        return builder.build()
+    }
+
+    private fun updateNotification() {
+        val notification = createNotification()
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun toggleService() {
+        if (isToggleInProgress) {
+            Timber.d("Toggle already in progress, ignoring")
+            return
+        }
+
+        isToggleInProgress = true
+        updateNotification() // 立即更新通知显示"处理中"
+
+        isAirControllerEnabled = !isAirControllerEnabled
+        saveServiceState(isAirControllerEnabled)
+
+        // 通知MainActivity更新UI
+        EventBus.getDefault().post(AirControllerStateEvent(isAirControllerEnabled))
+        // The actual enable/disable will be handled by onAirControllerStateChanged
+    }
+
+    private fun saveServiceState(enabled: Boolean) {
+        val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("service_enabled", enabled).apply()
     }
 }

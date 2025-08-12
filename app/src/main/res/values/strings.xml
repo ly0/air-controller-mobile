@@ -99,4 +99,6 @@
     <string name="warning_disable_aircontroller">禁用后将停止广播、HTTP服务器和所有监听，您需要重新启用才能继续使用。</string>
     <string name="confirm_enable_aircontroller">确认启用 AirController？</string>
     <string name="warning_enable_aircontroller">启用后将重新启动广播、HTTP服务器和各项监听服务。</string>
+    <string name="service_stopped">服务已停止</string>
+    <string name="processing">处理中...</string>
 </resources>
