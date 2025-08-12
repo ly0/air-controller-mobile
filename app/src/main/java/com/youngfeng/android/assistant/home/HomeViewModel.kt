@@ -53,6 +53,9 @@ class HomeViewModel : ViewModel() {
     private val _ipWhitelistItems = MutableLiveData<List<String>>(emptyList())
     val ipWhitelistItems: LiveData<List<String>> = _ipWhitelistItems
 
+    private val _isAirControllerEnabled = MutableLiveData<Boolean>(true)
+    val isAirControllerEnabled: LiveData<Boolean> = _isAirControllerEnabled
+
     fun setWifiConnectStatus(isConnected: Boolean) {
         _isWifiConnected.value = isConnected
     }
@@ -166,5 +169,10 @@ class HomeViewModel : ViewModel() {
         IpWhitelistManager.removeIp(ip)
         refreshIpWhitelist()
         addLogEntry("从白名单移除IP: $ip", LogType.WARNING)
+    }
+
+    fun setAirControllerEnabled(enabled: Boolean) {
+        _isAirControllerEnabled.value = enabled
+        addLogEntry(if (enabled) "AirController已启用" else "AirController已禁用", LogType.INFO)
     }
 }

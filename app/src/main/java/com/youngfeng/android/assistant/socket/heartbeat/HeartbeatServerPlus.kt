@@ -122,8 +122,24 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
             return
         }
 
-        mSingleExecutors.shutdownNow()
         isStarted = false
+
+        // 先断开所有客户端
+        if (mClients.isNotEmpty()) {
+            mClients.forEach { it.disconnect() }
+            mClients.clear()
+        }
+
+        // 关闭服务器socket
+        try {
+            if (this::mServerSocket.isInitialized && !mServerSocket.isClosed) {
+                mServerSocket.close()
+            }
+        } catch (e: Exception) {
+            Timber.e("Error closing server socket: ${e.message}")
+        }
+
+        mSingleExecutors.shutdownNow()
         mListeners.forEach { it.onStop() }
     }
 

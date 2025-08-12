@@ -14,15 +14,7 @@ import java.util.concurrent.TimeUnit
  * @author Scott Smith 2021/12/29 16:13
  */
 class SimpleSocketServer(private val port: Int) {
-    private val mExecutorService by lazy {
-        val executor = ThreadPoolExecutor(
-            4, 8,
-            Long.MAX_VALUE, TimeUnit.SECONDS,
-            SynchronousQueue()
-        )
-        executor.allowCoreThreadTimeOut(false)
-        executor
-    }
+    private var mExecutorService: ThreadPoolExecutor? = null
     private var mServerSocket: ServerSocket? = null
     private var isStarted = false
     private var onStartComplete: ((server: ServerSocket) -> Unit)? = null
@@ -38,8 +30,21 @@ class SimpleSocketServer(private val port: Int) {
         private val TAG = SimpleSocketServer::class.simpleName
     }
 
+    private fun ensureExecutorService() {
+        if (mExecutorService == null || mExecutorService!!.isShutdown) {
+            mExecutorService = ThreadPoolExecutor(
+                4, 8,
+                Long.MAX_VALUE, TimeUnit.SECONDS,
+                SynchronousQueue()
+            ).apply {
+                allowCoreThreadTimeOut(false)
+            }
+        }
+    }
+
     fun start() {
-        mExecutorService.submit {
+        ensureExecutorService()
+        mExecutorService!!.submit {
             try {
                 mServerSocket = ServerSocket(port)
                 onStartComplete?.invoke(mServerSocket!!)
@@ -65,7 +70,8 @@ class SimpleSocketServer(private val port: Int) {
     }
 
     private fun handleMessage(client: Socket) {
-        mExecutorService.submit {
+        ensureExecutorService()
+        mExecutorService!!.submit {
             val inputStream = client.getInputStream()
             do {
                 val data = mutableListOf<Byte>()
@@ -95,13 +101,15 @@ class SimpleSocketServer(private val port: Int) {
             e.printStackTrace()
             Timber.e("Stop server socket cause error: ${e.message}")
         }
-        mExecutorService.shutdown()
+        mExecutorService?.shutdown()
+        mExecutorService = null // 清空引用，下次启动时会重新创建
         isStarted = false
         onStopComplete?.invoke()
     }
 
     fun sendToClient(client: Socket, data: ByteArray) {
-        mExecutorService.submit {
+        ensureExecutorService()
+        mExecutorService!!.submit {
             try {
                 val outputStream = client.getOutputStream()
                 outputStream.write(data)

@@ -93,4 +93,10 @@
     <string name="warning_disable_ip_whitelist">关闭IP白名单后，所有IP都可以访问HTTP服务，这可能存在安全风险。确定要关闭吗？</string>
     <string name="enable">启用</string>
     <string name="disable">禁用</string>
+    <string name="label_disable_aircontroller">禁用 AirController</string>
+    <string name="disable_aircontroller_description">停止所有服务以节省电量和提高安全性</string>
+    <string name="confirm_disable_aircontroller">确认禁用 AirController？</string>
+    <string name="warning_disable_aircontroller">禁用后将停止广播、HTTP服务器和所有监听，您需要重新启用才能继续使用。</string>
+    <string name="confirm_enable_aircontroller">确认启用 AirController？</string>
+    <string name="warning_enable_aircontroller">启用后将重新启动广播、HTTP服务器和各项监听服务。</string>
 </resources>

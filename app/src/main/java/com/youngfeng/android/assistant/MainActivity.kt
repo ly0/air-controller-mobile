@@ -28,6 +28,7 @@ import com.youngfeng.android.assistant.about.AboutActivity
 import com.youngfeng.android.assistant.adapter.IpWhitelistAdapter
 import com.youngfeng.android.assistant.adapter.LogAdapter
 import com.youngfeng.android.assistant.databinding.ActivityMainBinding
+import com.youngfeng.android.assistant.event.AirControllerStateEvent
 import com.youngfeng.android.assistant.event.BatchUninstallEvent
 import com.youngfeng.android.assistant.event.DeviceConnectEvent
 import com.youngfeng.android.assistant.event.DeviceDisconnectEvent
@@ -98,6 +99,32 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             .setNegativeButton(R.string.cancel) { dialog, _ ->
                 dialog.dismiss()
                 mViewDataBinding?.switchIpWhitelist?.isChecked = true
+            }
+            .create()
+    }
+    private val mDisableAirControllerConfirmDialog by lazy {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.confirm_disable_aircontroller)
+            .setMessage(R.string.warning_disable_aircontroller)
+            .setPositiveButton(R.string.disable) { _, _ ->
+                disableAirController()
+            }
+            .setNegativeButton(R.string.cancel) { dialog, _ ->
+                dialog.dismiss()
+                mViewDataBinding?.switchAircontroller?.isChecked = true
+            }
+            .create()
+    }
+    private val mEnableAirControllerConfirmDialog by lazy {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.confirm_enable_aircontroller)
+            .setMessage(R.string.warning_enable_aircontroller)
+            .setPositiveButton(R.string.enable) { _, _ ->
+                enableAirController()
+            }
+            .setNegativeButton(R.string.cancel) { dialog, _ ->
+                dialog.dismiss()
+                mViewDataBinding?.switchAircontroller?.isChecked = false
             }
             .create()
     }
@@ -195,6 +222,20 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                     // Show confirmation dialog when disabling
                     if (!mDisableIpWhitelistConfirmDialog.isShowing) {
                         mDisableIpWhitelistConfirmDialog.show()
+                    }
+                }
+            }
+
+            this.switchAircontroller.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) {
+                    // Show confirmation dialog when enabling
+                    if (!mEnableAirControllerConfirmDialog.isShowing) {
+                        mEnableAirControllerConfirmDialog.show()
+                    }
+                } else {
+                    // Show confirmation dialog when disabling
+                    if (!mDisableAirControllerConfirmDialog.isShowing) {
+                        mDisableAirControllerConfirmDialog.show()
                     }
                 }
             }
@@ -566,5 +607,34 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             },
             0, 2000
         )
+    }
+
+    private fun disableAirController() {
+        mViewModel.setAirControllerEnabled(false)
+        // 停止热点监控
+        mHotspotCheckTimer?.cancel()
+        mHotspotCheckTimer = null
+        // 发送事件到NetworkService
+        EventBus.getDefault().post(AirControllerStateEvent(enabled = false))
+        mViewModel.addLogEntry("正在停止所有服务...", LogType.WARNING)
+        // 添加日志以跟踪服务状态
+        mViewModel.addLogEntry("停止广播服务", LogType.INFO)
+        mViewModel.addLogEntry("停止HTTP服务器", LogType.INFO)
+        mViewModel.addLogEntry("停止监听服务", LogType.INFO)
+    }
+
+    private fun enableAirController() {
+        mViewModel.setAirControllerEnabled(true)
+        // 重新启动热点监控
+        startHotspotCheckTimer()
+        // 先发送事件到NetworkService让它启用服务
+        EventBus.getDefault().post(AirControllerStateEvent(enabled = true))
+        mViewModel.addLogEntry("正在启动所有服务...", LogType.SUCCESS)
+        // 添加日志以跟踪服务状态
+        mViewModel.addLogEntry("启动广播服务", LogType.INFO)
+        mViewModel.addLogEntry("启动HTTP服务器", LogType.INFO)
+        mViewModel.addLogEntry("启动监听服务", LogType.INFO)
+        // 不需要重新启动NetworkService本身，因为它作为前台服务一直在运行
+        // 只需要让它内部重新启用各项服务即可
     }
 }

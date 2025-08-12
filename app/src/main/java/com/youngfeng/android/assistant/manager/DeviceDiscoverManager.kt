@@ -18,6 +18,7 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
@@ -79,13 +80,17 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
     private val mBroadcastInterfaces = mutableListOf<BroadcastInterface>()
     private var isStarted = false
     private var onDeviceDiscover: ((device: Device) -> Unit)? = null
-    private val mTimer by lazy { Timer() }
+    private var mTimer: Timer? = null
     private var mMulticastLock: MulticastLock? = null
     private var mBroadcastTimerTask: TimerTask? = null
     private var isBroadcastPaused = false
 
-    private val mExecutor by lazy {
-        Executors.newSingleThreadExecutor()
+    private var mExecutor: ExecutorService? = null
+
+    private fun ensureExecutor() {
+        if (mExecutor == null || mExecutor!!.isShutdown) {
+            mExecutor = Executors.newSingleThreadExecutor()
+        }
     }
 
     // 存储接口信息和对应的socket
@@ -110,7 +115,11 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
         isStarted = true
         isBroadcastPaused = false
 
-        mExecutor.submit {
+        // 创建新的Timer
+        mTimer = Timer()
+
+        ensureExecutor()
+        mExecutor!!.submit {
             // 获取多播锁（在热点模式下必需）
             acquireMulticastLock()
 
@@ -469,8 +478,10 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
         mReceiveSocket?.close()
         mBroadcastInterfaces.forEach { it.socket.close() }
         mBroadcastInterfaces.clear()
-        mTimer.cancel()
-        mExecutor.shutdownNow()
+        mTimer?.cancel()
+        mTimer = null // 清空引用，下次启动时会重新创建
+        mExecutor?.shutdownNow()
+        mExecutor = null // 清空引用，下次启动时会重新创建
         isStarted = false
 
         // 释放多播锁
@@ -519,7 +530,11 @@ class DeviceDiscoverManagerImpl : DeviceDiscoverManager {
                 }
             }
         }
-        mTimer.schedule(mBroadcastTimerTask, 0, 1000)
+        // 确保Timer存在
+        if (mTimer == null) {
+            mTimer = Timer()
+        }
+        mTimer?.schedule(mBroadcastTimerTask, 0, 1000)
     }
 
     private fun stopBroadcastTimer() {
