@@ -63,6 +63,8 @@ fun Route.configureImageRoutes(context: Context) {
             call.respond(HttpResponseEntity.success(images))
         }
 
+        // Unregistered delete route - code preserved
+        /*
         post("/delete") {
             val request = call.receive<DeleteImageRequest>()
             val languageCode = call.request.header("languageCode")
@@ -110,7 +112,10 @@ fun Route.configureImageRoutes(context: Context) {
                 call.respond(response)
             }
         }
+        */
 
+        // Unregistered deleteAlbums route - code preserved
+        /*
         post("/deleteAlbums") {
             val request = call.receive<DeleteAlbumsRequest>()
             val languageCode = call.request.header("languageCode")
@@ -161,6 +166,7 @@ fun Route.configureImageRoutes(context: Context) {
                 call.respond(response)
             }
         }
+        */
 
         post("/imagesOfAlbum") {
             val request = call.receive<GetAlbumImagesRequest>()

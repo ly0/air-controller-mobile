@@ -133,6 +133,8 @@ fun Route.configureFileRoutes(context: Context) {
             }
         }
 
+        // Unregistered delete route - code preserved
+        /*
         post("/delete") {
             val requestBody = call.receive<DeleteFileRequest>()
             val languageCode = call.request.header("languageCode")
@@ -152,6 +154,7 @@ fun Route.configureFileRoutes(context: Context) {
                 )
             }
         }
+        */
 
         post("/rename") {
             val requestBody = call.receive<RenameFileRequest>()
@@ -222,6 +225,8 @@ fun Route.configureFileRoutes(context: Context) {
             }
         }
 
+        // Unregistered deleteMulti route - code preserved
+        /*
         post("/deleteMulti") {
             val requestBody = call.receive<DeleteMultiFileRequest>()
             val languageCode = call.request.header("languageCode")
@@ -271,6 +276,7 @@ fun Route.configureFileRoutes(context: Context) {
                 )
             }
         }
+        */
 
         post("/downloadedFiles") {
             val languageCode = call.request.header("languageCode")

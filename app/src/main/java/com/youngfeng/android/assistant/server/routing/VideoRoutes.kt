@@ -44,6 +44,8 @@ fun Route.configureVideoRoutes(context: Context) {
             call.respond(HttpResponseEntity.success(videos))
         }
 
+        // Unregistered delete route - code preserved
+        /*
         post("/delete") {
             val request = call.receive<DeleteVideosRequest>()
             val languageCode = call.request.header("languageCode")
@@ -91,6 +93,7 @@ fun Route.configureVideoRoutes(context: Context) {
                 call.respond(response)
             }
         }
+        */
 
         post("/upload") {
             val multipart = call.receiveMultipart()

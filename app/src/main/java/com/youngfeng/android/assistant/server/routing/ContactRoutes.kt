@@ -341,6 +341,8 @@ fun Route.configureContactRoutes(context: Context) {
             }
         }
 
+        // Unregistered deleteRawContact route - code preserved
+        /*
         post("/deleteRawContact") {
             val request = call.receive<DeleteRawContactsRequest>()
 
@@ -367,6 +369,7 @@ fun Route.configureContactRoutes(context: Context) {
                 )
             }
         }
+        */
 
         post("/uploadPhoto") {
             val multipart = call.receiveMultipart()

@@ -32,6 +32,8 @@ fun Route.configureAudioRoutes(context: Context) {
             call.respond(HttpResponseEntity.success(audios))
         }
 
+        // Unregistered delete route - code preserved
+        /*
         post("/delete") {
             val request = call.receive<DeleteAudioRequest>()
             val languageCode = call.request.header("languageCode")
@@ -69,6 +71,7 @@ fun Route.configureAudioRoutes(context: Context) {
                 call.respond(response)
             }
         }
+        */
 
         post("/upload") {
             val multipart = call.receiveMultipart()
