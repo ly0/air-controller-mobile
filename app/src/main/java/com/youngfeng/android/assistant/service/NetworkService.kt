@@ -9,6 +9,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -38,6 +42,7 @@ import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatClient
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatListener
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatServerPlus
 import com.youngfeng.android.assistant.util.CommonUtil
+import com.youngfeng.android.assistant.util.NetworkUtil
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
@@ -76,6 +81,11 @@ class NetworkService : Service() {
     private val mGson by lazy { Gson() }
     private var isAirControllerEnabled = true
     private var isToggleInProgress = false
+    private var connectedDevice: Device? = null
+    private var isDeviceConnected = false
+    private lateinit var connectivityManager: ConnectivityManager
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var hotspotCheckTimer: java.util.Timer? = null
 
     private companion object {
         const val DEFAULT_TIMEOUT = 10
@@ -141,6 +151,9 @@ class NetworkService : Service() {
                         Timber.d("Removed timeout client IP from whitelist: $clientIp")
                     }
 
+                    isDeviceConnected = false
+                    connectedDevice = null
+                    updateNotification() // 更新通知显示未连接状态
                     EventBus.getDefault().post(DeviceDisconnectEvent())
                     Timber.d("Heartbeat server, onClientTimeout.")
                 }
@@ -158,6 +171,8 @@ class NetworkService : Service() {
                         Timber.d("Added connected client IP to whitelist: $clientIp")
                     }
 
+                    isDeviceConnected = true
+                    updateNotification() // 更新通知显示已连接状态
                     EventBus.getDefault().post(DeviceConnectEvent())
                     Timber.d("Heartbeat server, onNewClientJoin.")
                 }
@@ -175,6 +190,9 @@ class NetworkService : Service() {
                         Timber.d("Removed disconnected client IP from whitelist: $clientIp")
                     }
 
+                    isDeviceConnected = false
+                    connectedDevice = null
+                    updateNotification() // 更新通知显示未连接状态
                     EventBus.getDefault().post(DeviceDisconnectEvent())
                 }
             })
@@ -201,6 +219,12 @@ class NetworkService : Service() {
         // Register toggle receiver
         val toggleFilter = IntentFilter(ACTION_TOGGLE_SERVICE)
         registerReceiver(mToggleReceiver, toggleFilter)
+
+        // Register network state listener
+        registerNetworkListener()
+
+        // Start hotspot check timer
+        startHotspotCheckTimer()
     }
 
     private fun notifyBatteryChanged() {
@@ -224,6 +248,8 @@ class NetworkService : Service() {
             val device = mGson.fromJson(str, Device::class.java)
 
             Timber.d("Cmd received, cmd: $cmd, device name: ${device.name}")
+            connectedDevice = device
+            updateNotification() // 更新通知显示设备信息
             EventBus.getDefault().post(DeviceReportEvent(device))
         }
     }
@@ -243,6 +269,10 @@ class NetworkService : Service() {
                 IpWhitelistManager.removeIp(clientIp)
                 Timber.d("Removed manually disconnected client IP from whitelist: $clientIp")
             }
+
+            isDeviceConnected = false
+            connectedDevice = null
+            updateNotification() // 更新通知显示未连接状态
         }
     }
 
@@ -291,6 +321,9 @@ class NetworkService : Service() {
         } catch (e: Exception) {
             Timber.e("Error unregistering battery receiver: ${e.message}")
         }
+
+        // 停止热点检查定时器
+        stopHotspotCheckTimer()
 
         Timber.d("AirController services disabled")
     }
@@ -349,6 +382,9 @@ class NetworkService : Service() {
                         IpWhitelistManager.removeIp(clientIp)
                         Timber.d("Removed timeout client IP from whitelist: $clientIp")
                     }
+                    isDeviceConnected = false
+                    connectedDevice = null
+                    updateNotification()
                     EventBus.getDefault().post(DeviceDisconnectEvent())
                     Timber.d("Heartbeat server, onClientTimeout.")
                 }
@@ -361,6 +397,8 @@ class NetworkService : Service() {
                         IpWhitelistManager.addIp(clientIp)
                         Timber.d("Added connected client IP to whitelist: $clientIp")
                     }
+                    isDeviceConnected = true
+                    updateNotification()
                     EventBus.getDefault().post(DeviceConnectEvent())
                     Timber.d("Heartbeat server, onNewClientJoin.")
                 }
@@ -373,6 +411,9 @@ class NetworkService : Service() {
                         IpWhitelistManager.removeIp(clientIp)
                         Timber.d("Removed disconnected client IP from whitelist: $clientIp")
                     }
+                    isDeviceConnected = false
+                    connectedDevice = null
+                    updateNotification()
                     EventBus.getDefault().post(DeviceDisconnectEvent())
                 }
             })
@@ -429,6 +470,9 @@ class NetworkService : Service() {
             EventBus.getDefault().post(LogEvent(LogEntry(message = "广播服务启动失败: ${e.message}", type = LogType.ERROR)))
         }
 
+        // 重新启动热点检查定时器
+        startHotspotCheckTimer()
+
         Timber.d("AirController services enabled successfully")
         EventBus.getDefault().post(LogEvent(LogEntry(message = "所有服务已成功启动", type = LogType.SUCCESS)))
     }
@@ -459,6 +503,8 @@ class NetworkService : Service() {
         mHttpServer?.stop(1000, 2000)
         mWakeLock.release()
         unRegisterEventBus()
+        unregisterNetworkListener()
+        stopHotspotCheckTimer()
         try {
             unregisterReceiver(mToggleReceiver)
         } catch (e: Exception) {
@@ -498,13 +544,45 @@ class NetworkService : Service() {
             PendingIntent.getBroadcast(this, RC_TOGGLE, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
-        // Create custom notification layout
-        val customView = RemoteViews(packageName, R.layout.notification_custom)
+        // Create custom notification layout - 使用扩展布局
+        val customView = RemoteViews(packageName, R.layout.notification_custom_expanded)
 
-        val statusText = if (isAirControllerEnabled) {
-            getString(R.string.working)
-        } else {
-            getString(R.string.service_stopped)
+        // 获取网络状态
+        val networkStatus = when (NetworkUtil.getNetworkStatus(this)) {
+            "WiFi" -> "WiFi"
+            "Hotspot" -> "热点"
+            "WiFi+Hotspot" -> "WiFi+热点" // 注意：没有空格
+            "No Network" -> "无网络"
+            else -> NetworkUtil.getNetworkStatus(this) // 直接使用原始值
+        }
+        val wifiIp = NetworkUtil.getWifiIpAddress(this)
+        val hotspotIp = NetworkUtil.getHotspotIpAddress(this)
+        val currentIp = wifiIp ?: hotspotIp
+
+        // 设置状态文本
+        val statusText = when {
+            !isAirControllerEnabled -> getString(R.string.service_stopped)
+            isDeviceConnected && connectedDevice != null -> "已配对: ${connectedDevice?.name}"
+            else -> getString(R.string.waiting_for_pairing)
+        }
+
+        // 设置网络信息
+        val networkText = when {
+            !isAirControllerEnabled -> ""
+            isDeviceConnected && connectedDevice != null -> "电脑: ${connectedDevice?.ip}"
+            networkStatus == "无网络" -> "网络: 未连接"
+            else -> "网络: $networkStatus"
+        }
+
+        // 设置IP信息
+        val ipText = when {
+            !isAirControllerEnabled -> ""
+            isDeviceConnected && connectedDevice != null -> {
+                // 已连接时显示本机IP
+                if (currentIp != null) "本机: $currentIp" else ""
+            }
+            currentIp != null -> "IP: $currentIp"
+            else -> ""
         }
 
         val toggleText = if (isToggleInProgress) {
@@ -517,8 +595,14 @@ class NetworkService : Service() {
 
         // Set texts
         customView.setTextViewText(R.id.notification_title, getString(R.string.app_name))
-        customView.setTextViewText(R.id.notification_text, statusText)
+        customView.setTextViewText(R.id.notification_status, statusText)
+        customView.setTextViewText(R.id.notification_network, networkText)
+        customView.setTextViewText(R.id.notification_ip, ipText)
         customView.setTextViewText(R.id.notification_toggle_button, toggleText)
+
+        // 设置网络和IP文本的可见性
+        customView.setViewVisibility(R.id.notification_network, if (networkText.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
+        customView.setViewVisibility(R.id.notification_ip, if (ipText.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
 
         // Set button background based on state
         val buttonBackground = when {
@@ -572,5 +656,75 @@ class NetworkService : Service() {
     private fun saveServiceState(enabled: Boolean) {
         val prefs = getSharedPreferences("AirControllerPrefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("service_enabled", enabled).apply()
+    }
+
+    private fun registerNetworkListener() {
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                super.onAvailable(network)
+                // 网络可用时更新通知
+                android.os.Handler(mainLooper).postDelayed({
+                    updateNotification()
+                }, 500) // 延迟一下等待网络完全建立
+            }
+
+            override fun onLost(network: Network) {
+                super.onLost(network)
+                // 网络丢失时更新通知
+                android.os.Handler(mainLooper).post {
+                    updateNotification()
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                super.onCapabilitiesChanged(network, networkCapabilities)
+                // 网络能力变化时更新通知（如WiFi切换到热点）
+                android.os.Handler(mainLooper).post {
+                    updateNotification()
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            connectivityManager.registerDefaultNetworkCallback(networkCallback!!)
+        } else {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(request, networkCallback!!)
+        }
+    }
+
+    private fun unregisterNetworkListener() {
+        networkCallback?.let {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (e: Exception) {
+                Timber.e("Error unregistering network callback: ${e.message}")
+            }
+        }
+    }
+
+    private fun startHotspotCheckTimer() {
+        hotspotCheckTimer?.cancel()
+        hotspotCheckTimer = java.util.Timer()
+        hotspotCheckTimer?.scheduleAtFixedRate(
+            object : java.util.TimerTask() {
+                override fun run() {
+                    // 定期检查热点状态变化
+                    android.os.Handler(mainLooper).post {
+                        updateNotification()
+                    }
+                }
+            },
+            0, 3000 // 每3秒检查一次
+        )
+    }
+
+    private fun stopHotspotCheckTimer() {
+        hotspotCheckTimer?.cancel()
+        hotspotCheckTimer = null
     }
 }
