@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import android.text.TextUtils
 import com.youngfeng.android.assistant.app.AirControllerApp
-import com.youngfeng.android.assistant.ext.getString
 import com.youngfeng.android.assistant.server.HttpError
 import com.youngfeng.android.assistant.server.HttpModule
 import com.youngfeng.android.assistant.server.entity.*

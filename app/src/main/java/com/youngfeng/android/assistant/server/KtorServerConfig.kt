@@ -22,6 +22,8 @@ import timber.log.Timber
 import java.io.File
 
 fun Application.configureKtorServer(context: Context) {
+    install(IpWhitelistPlugin)
+
     install(ContentNegotiation) {
         gson {
             setPrettyPrinting()
@@ -51,10 +53,7 @@ fun Application.configureKtorServer(context: Context) {
         format { call ->
             val method = call.request.httpMethod.value
             val path = call.request.path()
-            val clientIp = call.request.header("X-Forwarded-For")
-                ?: call.request.header("X-Real-IP")
-                ?: call.request.header("Host")?.substringBefore(":")
-                ?: "Unknown"
+            val clientIp = extractClientIp(call)
 
             val logMessage = "请求: $method $path (来自: $clientIp)"
             LogManager.log(logMessage, LogType.INFO)
@@ -90,5 +89,30 @@ fun Application.configureKtorServer(context: Context) {
         configureVideoRoutes(context)
         configureAudioRoutes(context)
         configureContactRoutes(context)
+    }
+}
+
+private fun extractClientIp(call: ApplicationCall): String {
+    // First try to get the real client IP from headers (if behind proxy)
+    val forwardedFor = call.request.header("X-Forwarded-For")?.substringBefore(",")
+    if (!forwardedFor.isNullOrBlank()) {
+        return forwardedFor.trim()
+    }
+
+    val realIp = call.request.header("X-Real-IP")
+    if (!realIp.isNullOrBlank()) {
+        return realIp.trim()
+    }
+
+    // Try to get from local property (Ktor 2.x way)
+    return try {
+        val local = call.request.local
+        // Use remoteAddress to get IP, not remoteHost which may return hostname
+        val remoteAddress = local.remoteAddress
+        // remoteAddress is the IP address as string
+        remoteAddress
+    } catch (e: Exception) {
+        Timber.e(e, "Failed to get client IP, using fallback")
+        "Unknown"
     }
 }

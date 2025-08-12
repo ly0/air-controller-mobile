@@ -3,13 +3,10 @@ package com.youngfeng.android.assistant.server.routing
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.text.TextUtils
-import com.youngfeng.android.assistant.R
 import com.youngfeng.android.assistant.app.AirControllerApp
-import com.youngfeng.android.assistant.ext.getString
 import com.youngfeng.android.assistant.server.HttpError
 import com.youngfeng.android.assistant.server.HttpModule
 import com.youngfeng.android.assistant.server.entity.HttpResponseEntity
-import com.youngfeng.android.assistant.server.request.DeleteAudioRequest
 import com.youngfeng.android.assistant.server.util.ErrorBuilder
 import com.youngfeng.android.assistant.util.AudioUtil
 import com.youngfeng.android.assistant.util.PathHelper

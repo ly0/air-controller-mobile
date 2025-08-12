@@ -51,12 +51,18 @@ android {
     }
     kotlinOptions {
         jvmTarget = '1.8'
+        freeCompilerArgs += [
+            '-Xjvm-default=all',
+            '-opt-in=kotlin.RequiresOptIn'
+        ]
     }
     
     kapt {
         javacOptions {
             option("-Xmaxerrs", 500)
         }
+        correctErrorTypes = true
+        useBuildCache = false
     }
 
     detekt {

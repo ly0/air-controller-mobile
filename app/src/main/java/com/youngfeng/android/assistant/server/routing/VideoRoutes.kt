@@ -9,7 +9,6 @@ import com.youngfeng.android.assistant.ext.getString
 import com.youngfeng.android.assistant.server.HttpError
 import com.youngfeng.android.assistant.server.HttpModule
 import com.youngfeng.android.assistant.server.entity.HttpResponseEntity
-import com.youngfeng.android.assistant.server.request.DeleteVideosRequest
 import com.youngfeng.android.assistant.server.request.GetVideosRequest
 import com.youngfeng.android.assistant.server.util.ErrorBuilder
 import com.youngfeng.android.assistant.util.PathHelper

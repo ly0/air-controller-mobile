@@ -7,6 +7,7 @@ import com.youngfeng.android.assistant.event.RequestDisconnectClientEvent
 import com.youngfeng.android.assistant.model.DesktopInfo
 import com.youngfeng.android.assistant.model.LogEntry
 import com.youngfeng.android.assistant.model.LogType
+import com.youngfeng.android.assistant.server.IpWhitelistManager
 import com.youngfeng.android.assistant.socket.CmdSocketServer
 import org.greenrobot.eventbus.EventBus
 
@@ -45,6 +46,12 @@ class HomeViewModel : ViewModel() {
 
     private val _isLoggingEnabled = MutableLiveData<Boolean>(true)
     val isLoggingEnabled: LiveData<Boolean> = _isLoggingEnabled
+
+    private val _ipWhitelistEnabled = MutableLiveData<Boolean>(IpWhitelistManager.isEnabled())
+    val ipWhitelistEnabled: LiveData<Boolean> = _ipWhitelistEnabled
+
+    private val _ipWhitelistItems = MutableLiveData<List<String>>(emptyList())
+    val ipWhitelistItems: LiveData<List<String>> = _ipWhitelistItems
 
     fun setWifiConnectStatus(isConnected: Boolean) {
         _isWifiConnected.value = isConnected
@@ -138,5 +145,26 @@ class HomeViewModel : ViewModel() {
 
     fun clearLogs() {
         _logEntries.value = mutableListOf()
+    }
+
+    fun setIpWhitelistEnabled(enabled: Boolean) {
+        if (enabled) {
+            IpWhitelistManager.manualEnable()
+        } else {
+            IpWhitelistManager.manualDisable()
+        }
+        _ipWhitelistEnabled.value = enabled
+        addLogEntry(if (enabled) "IP白名单已启用" else "IP白名单已禁用", LogType.INFO)
+    }
+
+    fun refreshIpWhitelist() {
+        _ipWhitelistItems.value = IpWhitelistManager.getWhitelistedIps().toList()
+        _ipWhitelistEnabled.value = IpWhitelistManager.isEnabled()
+    }
+
+    fun removeIpFromWhitelist(ip: String) {
+        IpWhitelistManager.removeIp(ip)
+        refreshIpWhitelist()
+        addLogEntry("从白名单移除IP: $ip", LogType.WARNING)
     }
 }

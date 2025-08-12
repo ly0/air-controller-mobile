@@ -19,6 +19,8 @@ interface HeartbeatServerPlus {
 
     fun disconnectClient()
 
+    fun getConnectedClientIp(): String?
+
     companion object {
         fun create(config: HeartbeatConfig? = null) = HeartbeatServerPlusImpl(config ?: HeartbeatConfig())
     }
@@ -38,6 +40,7 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
     private lateinit var mServerSocket: ServerSocket
     private val mListeners = mutableListOf<HeartbeatListener>()
     private val mClients = mutableListOf<HeartbeatClient>()
+    private var mCurrentClientIp: String? = null
 
     override fun start() {
         if (isStarted) {
@@ -56,14 +59,17 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
                 while (isStarted) {
                     if (mClients.isEmpty()) {
                         val socket = mServerSocket.accept()
+                        mCurrentClientIp = socket.inetAddress.hostAddress
 
                         val client = HeartbeatClient.create(socket, config, onTimeout = { client ->
                             mListeners.forEach { it.onClientTimeout(client) }
                             mClients.clear()
+                            mCurrentClientIp = null
                         }) { client ->
                             mClients.remove(client)
                             if (mClients.isEmpty()) {
                                 mListeners.forEach { it.onClientDisconnected() }
+                                mCurrentClientIp = null
                             }
                         }
                         mClients.add(client)
@@ -75,6 +81,7 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
                             Timber.d("Hit strategy KeepConnectWhenNewJoin, drop!")
                         } else {
                             val socket = mServerSocket.accept()
+                            mCurrentClientIp = socket.inetAddress.hostAddress
 
                             if (mClients.isNotEmpty()) {
                                 val oldClient = mClients.single()
@@ -85,10 +92,12 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
                             val client = HeartbeatClient.create(socket, config, onTimeout = { client ->
                                 mListeners.forEach { it.onClientTimeout(client) }
                                 mClients.clear()
+                                mCurrentClientIp = null
                             }) { client ->
                                 mClients.remove(client)
                                 if (mClients.isEmpty()) {
                                     mListeners.forEach { it.onClientDisconnected() }
+                                    mCurrentClientIp = null
                                 }
                             }
                             mClients.add(client)
@@ -130,6 +139,12 @@ class HeartbeatServerPlusImpl(private var config: HeartbeatConfig) : HeartbeatSe
         if (mClients.isNotEmpty()) {
             mClients.single().disconnect()
             mClients.clear()
+            // Don't clear IP immediately - let the caller get it first for cleanup
+            // The IP will be cleared in onClientDisconnected callback
         }
+    }
+
+    override fun getConnectedClientIp(): String? {
+        return mCurrentClientIp
     }
 }

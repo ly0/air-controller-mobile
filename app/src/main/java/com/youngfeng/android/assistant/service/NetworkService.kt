@@ -26,6 +26,7 @@ import com.youngfeng.android.assistant.manager.DeviceDiscoverManager
 import com.youngfeng.android.assistant.model.Command
 import com.youngfeng.android.assistant.model.Device
 import com.youngfeng.android.assistant.model.MobileInfo
+import com.youngfeng.android.assistant.server.IpWhitelistManager
 import com.youngfeng.android.assistant.server.configureKtorServer
 import com.youngfeng.android.assistant.socket.CmdSocketServer
 import com.youngfeng.android.assistant.socket.heartbeat.HeartbeatClient
@@ -74,6 +75,10 @@ class NetworkService : Service() {
         )
         mWakeLock.acquire(60 * 60 * 1000L)
 
+        // 初始化IP白名单（清空旧记录，默认启用）
+        IpWhitelistManager.clear()
+        Timber.d("IP whitelist initialized")
+
         CmdSocketServer.getInstance().onOpen = {
             updateMobileInfo()
         }
@@ -102,6 +107,13 @@ class NetworkService : Service() {
                 // 客户端超时，恢复广播
                 DeviceDiscoverManager.getInstance().resumeBroadcast()
 
+                // 从IP白名单中移除该IP
+                val clientIp = heartbeatServer.getConnectedClientIp()
+                if (clientIp != null) {
+                    IpWhitelistManager.removeIp(clientIp)
+                    Timber.d("Removed timeout client IP from whitelist: $clientIp")
+                }
+
                 EventBus.getDefault().post(DeviceDisconnectEvent())
                 Timber.d("Heartbeat server, onClientTimeout.")
             }
@@ -112,6 +124,13 @@ class NetworkService : Service() {
                 // 连接成功，暂停广播
                 DeviceDiscoverManager.getInstance().pauseBroadcast()
 
+                // 添加IP到白名单（白名单默认已启用）
+                val clientIp = heartbeatServer.getConnectedClientIp()
+                if (clientIp != null) {
+                    IpWhitelistManager.addIp(clientIp)
+                    Timber.d("Added connected client IP to whitelist: $clientIp")
+                }
+
                 EventBus.getDefault().post(DeviceConnectEvent())
                 Timber.d("Heartbeat server, onNewClientJoin.")
             }
@@ -121,6 +140,13 @@ class NetworkService : Service() {
 
                 // 断开连接，恢复广播
                 DeviceDiscoverManager.getInstance().resumeBroadcast()
+
+                // 从IP白名单中移除该IP
+                val clientIp = heartbeatServer.getConnectedClientIp()
+                if (clientIp != null) {
+                    IpWhitelistManager.removeIp(clientIp)
+                    Timber.d("Removed disconnected client IP from whitelist: $clientIp")
+                }
 
                 EventBus.getDefault().post(DeviceDisconnectEvent())
             }
@@ -171,9 +197,18 @@ class NetworkService : Service() {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onRequestDisconnectClient(event: RequestDisconnectClientEvent) {
         if (this::heartbeatServer.isInitialized) {
+            // 先获取客户端IP
+            val clientIp = heartbeatServer.getConnectedClientIp()
+
             this.heartbeatServer.disconnectClient()
             // 主动断开连接，恢复广播
             DeviceDiscoverManager.getInstance().resumeBroadcast()
+
+            // 从IP白名单中移除该IP
+            if (clientIp != null) {
+                IpWhitelistManager.removeIp(clientIp)
+                Timber.d("Removed manually disconnected client IP from whitelist: $clientIp")
+            }
         }
     }
 

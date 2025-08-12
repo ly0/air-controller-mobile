@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.databinding.DataBindingUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.youngfeng.android.assistant.about.AboutActivity
+import com.youngfeng.android.assistant.adapter.IpWhitelistAdapter
 import com.youngfeng.android.assistant.adapter.LogAdapter
 import com.youngfeng.android.assistant.databinding.ActivityMainBinding
 import com.youngfeng.android.assistant.event.BatchUninstallEvent
@@ -86,6 +87,20 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     }
     private var mHotspotCheckTimer: Timer? = null
     private lateinit var mLogAdapter: LogAdapter
+    private lateinit var mIpWhitelistAdapter: IpWhitelistAdapter
+    private val mDisableIpWhitelistConfirmDialog by lazy {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.confirm_disable_ip_whitelist)
+            .setMessage(R.string.warning_disable_ip_whitelist)
+            .setPositiveButton(R.string.disable) { _, _ ->
+                mViewModel.setIpWhitelistEnabled(false)
+            }
+            .setNegativeButton(R.string.cancel) { dialog, _ ->
+                dialog.dismiss()
+                mViewDataBinding?.switchIpWhitelist?.isChecked = true
+            }
+            .create()
+    }
 
     companion object {
         private const val TAG = "MainActivity"
@@ -103,6 +118,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
 
         initializeUI()
         setupLogRecyclerView()
+        setupIpWhitelistRecyclerView()
 
         registerNetworkListener()
         setUpDeviceInfo()
@@ -171,6 +187,17 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             this.switchLogs.setOnCheckedChangeListener { _, isChecked ->
                 mViewModel.setLoggingEnabled(isChecked)
             }
+
+            this.switchIpWhitelist.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) {
+                    mViewModel.setIpWhitelistEnabled(true)
+                } else {
+                    // Show confirmation dialog when disabling
+                    if (!mDisableIpWhitelistConfirmDialog.isShowing) {
+                        mDisableIpWhitelistConfirmDialog.show()
+                    }
+                }
+            }
         }
     }
 
@@ -189,6 +216,26 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                 mViewDataBinding?.recyclerLogs?.scrollToPosition(0)
             }
         }
+    }
+
+    private fun setupIpWhitelistRecyclerView() {
+        mIpWhitelistAdapter = IpWhitelistAdapter { ip ->
+            // Handle IP removal
+            mViewModel.removeIpFromWhitelist(ip)
+        }
+
+        mViewDataBinding?.recyclerIpWhitelist?.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = mIpWhitelistAdapter
+        }
+
+        // Observe IP whitelist items
+        mViewModel.ipWhitelistItems.observe(this) { ips ->
+            mIpWhitelistAdapter.submitList(ips)
+        }
+
+        // Refresh IP whitelist initially
+        mViewModel.refreshIpWhitelist()
     }
 
     private fun registerUninstallLauncher() {
@@ -384,12 +431,16 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     fun onDeviceConnected(event: DeviceConnectEvent) {
         mViewModel.addLogEntry("设备已连接", LogType.SUCCESS)
         mViewModel.setDeviceConnected(true)
+        // Refresh IP whitelist when device connects
+        mViewModel.refreshIpWhitelist()
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onDeviceDisconnected(event: DeviceDisconnectEvent) {
         mViewModel.addLogEntry("设备已断开", LogType.WARNING)
         mViewModel.setDeviceConnected(false)
+        // Refresh IP whitelist when device disconnects
+        mViewModel.refreshIpWhitelist()
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -487,6 +538,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         super.onResume()
         updatePermissionsStatus()
         updateNetworkStatus()
+        mViewModel.refreshIpWhitelist()
     }
 
     override fun onDestroy() {
