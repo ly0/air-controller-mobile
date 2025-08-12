@@ -36,6 +36,16 @@
             tools:text="v2.0.0" />
 
     <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/text_commit_id"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="5dp"
+            android:textSize="14sp"
+            android:textColor="@color/yaHei"
+            tools:text="Commit: 3a37a23" />
+
+    <androidx.appcompat.widget.AppCompatTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
