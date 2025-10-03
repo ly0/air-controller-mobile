@@ -514,6 +514,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         when (event.device.platform) {
             Device.PLATFORM_LINUX -> os = "Linux"
             Device.PLATFORM_WINDOWS -> os = "Windows"
+            Device.PLATFORM_WEB -> os = "Web"
             else -> "MacOS"
         }
         val desktopInfo = DesktopInfo(event.device.name, event.device.ip, os)

@@ -9,5 +9,6 @@ class Device(
         const val PLATFORM_MACOS = 3
         const val PLATFORM_LINUX = 4
         const val PLATFORM_WINDOWS = 5
+        const val PLATFORM_WEB = 6
     }
 }
