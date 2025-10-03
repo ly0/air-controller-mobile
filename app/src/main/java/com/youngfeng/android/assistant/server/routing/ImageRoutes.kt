@@ -31,7 +31,12 @@ fun Route.configureImageRoutes(context: Context) {
         }
 
         post("/all") {
-            val images = PhotoUtil.getAllImages(mContext)
+            val request = try {
+                call.receive<GetAllImagesRequest>()
+            } catch (e: Exception) {
+                GetAllImagesRequest()
+            }
+            val images = PhotoUtil.getAllImages(mContext, request.page, request.pageSize)
             call.respond(HttpResponseEntity.success(images))
         }
 

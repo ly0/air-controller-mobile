@@ -71,7 +71,7 @@ object PhotoUtil {
     }
 
     @JvmStatic
-    fun getAllImages(context: Context): List<ImageEntity> {
+    fun getAllImages(context: Context, page: Int? = null, pageSize: Int? = null): List<ImageEntity> {
         val contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
 
         val projections = arrayOf(
@@ -87,7 +87,13 @@ object PhotoUtil {
             MediaStore.Images.ImageColumns.SIZE
         )
 
-        val orderBy = "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC"
+        var orderBy = "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC"
+
+        // Add pagination if both page and pageSize are provided
+        if (page != null && pageSize != null && page > 0 && pageSize > 0) {
+            val offset = (page - 1) * pageSize
+            orderBy = "$orderBy LIMIT $pageSize OFFSET $offset"
+        }
 
         val images = mutableListOf<ImageEntity>()
         context.contentResolver.query(contentUri, projections, null, null, orderBy, null)?.use {
