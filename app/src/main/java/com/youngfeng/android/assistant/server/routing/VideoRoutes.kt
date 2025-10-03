@@ -34,12 +34,25 @@ fun Route.configureVideoRoutes(context: Context) {
 
         post("/videosInFolder") {
             val request = call.receive<GetVideosRequest>()
-            val videos = VideoUtil.getVideosByFolderId(mContext, request.folderId)
+            val folderId = request.folderId ?: return@post call.respond(
+                HttpStatusCode.BadRequest,
+                HttpResponseEntity<Any>(
+                    code = HttpStatusCode.BadRequest.value,
+                    data = null,
+                    msg = "folderId is required"
+                )
+            )
+            val videos = VideoUtil.getVideosByFolderId(mContext, folderId)
             call.respond(HttpResponseEntity.success(videos))
         }
 
         post("/videos") {
-            val videos = VideoUtil.getAllVideos(mContext)
+            val request = try {
+                call.receive<GetVideosRequest>()
+            } catch (e: Exception) {
+                GetVideosRequest()
+            }
+            val videos = VideoUtil.getAllVideos(mContext, request.page, request.pageSize)
             call.respond(HttpResponseEntity.success(videos))
         }
 

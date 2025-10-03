@@ -128,7 +128,7 @@ object VideoUtil {
         return videos
     }
 
-    fun getAllVideos(context: Context): List<VideoEntity> {
+    fun getAllVideos(context: Context, page: Int? = null, pageSize: Int? = null): List<VideoEntity> {
         val projection = arrayOf(
             MediaStore.Video.VideoColumns._ID,
             MediaStore.Video.VideoColumns.DISPLAY_NAME,
@@ -139,6 +139,14 @@ object VideoUtil {
             MediaStore.Video.VideoColumns.DATE_MODIFIED
         )
 
+        var sortOrder: String? = null
+
+        // Add pagination if both page and pageSize are provided
+        if (page != null && pageSize != null && page > 0 && pageSize > 0) {
+            val offset = (page - 1) * pageSize
+            sortOrder = "${MediaStore.Video.VideoColumns.DATE_ADDED} DESC LIMIT $pageSize OFFSET $offset"
+        }
+
         val videos = mutableListOf<VideoEntity>()
 
         context.contentResolver.query(
@@ -146,7 +154,7 @@ object VideoUtil {
             projection,
             null,
             null,
-            null
+            sortOrder
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
                 val idIndex = cursor.getColumnIndex(MediaStore.Video.VideoColumns._ID)
