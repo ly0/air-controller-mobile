@@ -91,7 +91,17 @@ fun Route.configureFileRoutes(context: Context) {
                 }
             }).toMutableList()
 
-            call.respond(HttpResponseEntity.success(data))
+            // Apply pagination if both page and pageSize are provided
+            val paginatedData = if (requestBody.page != null && requestBody.pageSize != null &&
+                requestBody.page!! > 0 && requestBody.pageSize!! > 0
+            ) {
+                val offset = (requestBody.page!! - 1) * requestBody.pageSize!!
+                data.drop(offset).take(requestBody.pageSize!!)
+            } else {
+                data
+            }
+
+            call.respond(HttpResponseEntity.success(paginatedData))
         }
 
         post("/create") {
