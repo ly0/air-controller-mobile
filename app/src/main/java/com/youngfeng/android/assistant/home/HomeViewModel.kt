@@ -9,6 +9,7 @@ import com.youngfeng.android.assistant.model.LogEntry
 import com.youngfeng.android.assistant.model.LogType
 import com.youngfeng.android.assistant.server.IpWhitelistManager
 import com.youngfeng.android.assistant.socket.CmdSocketServer
+import com.youngfeng.android.assistant.util.PermissionStatus
 import org.greenrobot.eventbus.EventBus
 
 class HomeViewModel : ViewModel() {
@@ -55,6 +56,9 @@ class HomeViewModel : ViewModel() {
 
     private val _isAirControllerEnabled = MutableLiveData<Boolean>(true)
     val isAirControllerEnabled: LiveData<Boolean> = _isAirControllerEnabled
+
+    private val _permissionStatuses = MutableLiveData<List<PermissionStatus>>(emptyList())
+    val permissionStatuses: LiveData<List<PermissionStatus>> = _permissionStatuses
 
     fun setWifiConnectStatus(isConnected: Boolean) {
         _isWifiConnected.value = isConnected
@@ -174,5 +178,13 @@ class HomeViewModel : ViewModel() {
     fun setAirControllerEnabled(enabled: Boolean) {
         _isAirControllerEnabled.value = enabled
         addLogEntry(if (enabled) "AirController已启用" else "AirController已禁用", LogType.INFO)
+    }
+
+    fun updatePermissionStatuses(statuses: List<PermissionStatus>) {
+        _permissionStatuses.value = statuses
+
+        // 更新所有权限是否已授予的状态
+        val allGranted = statuses.all { it.isGranted }
+        updateAllPermissionsGranted(allGranted)
     }
 }

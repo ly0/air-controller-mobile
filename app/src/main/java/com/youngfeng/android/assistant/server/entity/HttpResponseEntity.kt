@@ -16,6 +16,10 @@ data class HttpResponseEntity<T>(
             return HttpResponseEntity(CODE_SUCCESS, data, null)
         }
 
+        fun <T> error(code: Int, message: String): HttpResponseEntity<T> {
+            return HttpResponseEntity(code, null, message)
+        }
+
         fun <T> commonError(error: HttpError): HttpResponseEntity<T> {
             return ErrorBuilder().module(HttpModule.SystemModule).error(error).build()
         }

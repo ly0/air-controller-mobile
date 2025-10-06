@@ -104,4 +104,14 @@
     <string name="waiting_for_pairing">等待配对</string>
     <string name="paired">已配对</string>
     <string name="no_network">无网络连接</string>
+    <string name="accessibility_service_description">允许 AirController 远程控制您的设备。此服务仅在您使用屏幕共享功能时使用，用于模拟触摸和手势操作。</string>
+    <string name="accessibility_service_required">需要无障碍服务权限</string>
+    <string name="accessibility_service_prompt">为了使用远程控制功能，需要启用无障碍服务。点击确定将跳转到设置页面，请找到 AirController 并启用服务。</string>
+    <string name="go_to_settings">前往设置</string>
+    <string name="label_permissions_status">权限状态</string>
+    <string name="all_permissions_granted">所有权限已授予</string>
+    <string name="permission_status_description">以下是应用所需的权限状态，点击未授予的权限可前往设置</string>
+    <string name="permission_granted">已授予</string>
+    <string name="permission_not_granted">未授予</string>
+    <string name="refresh_permissions">刷新</string>
 </resources>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>远程屏幕控制 - AirController</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.primary {
+            background: #4caf50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+            font-weight: 600;
+        }
+
+        .btn.primary:hover {
+            background: #45a049;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.7);
+        }
+
+        .btn.danger {
+            background: #f44336;
+        }
+
+        .btn.danger:hover {
+            background: #da190b;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            padding: 2rem;
+            gap: 2rem;
+        }
+
+        .screen-container {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        #screen-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            cursor: crosshair;
+            background: #000;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .sidebar h2 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .nav-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .nav-btn {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .nav-btn.home {
+            grid-column: 2;
+        }
+
+        .status-info {
+            margin-top: 1.5rem;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            font-size: 0.9rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 0.5rem;
+        }
+
+        .status-indicator.connected {
+            background: #4caf50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .connection-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            z-index: 10;
+        }
+
+        .connection-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .quality-control {
+            margin-top: 1rem;
+        }
+
+        .slider {
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 1rem 1.5rem;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 100;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+            }
+
+            .header {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🖥️ 远程屏幕控制</h1>
+        <div class="controls">
+            <button id="start-btn" class="btn primary">开始共享</button>
+            <button id="stop-btn" class="btn danger" disabled>停止共享</button>
+            <button id="fullscreen-btn" class="btn">全屏</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="screen-container">
+            <div id="connection-overlay" class="connection-overlay">
+                <div class="spinner"></div>
+                <p>正在连接...</p>
+            </div>
+            <canvas id="screen-canvas"></canvas>
+        </div>
+
+        <div class="sidebar">
+            <h2>导航控制</h2>
+            <div class="nav-controls">
+                <button class="btn nav-btn back" data-action="back">⬅️</button>
+                <button class="btn nav-btn home" data-action="home">🏠</button>
+                <button class="btn nav-btn recent" data-action="recent">📱</button>
+            </div>
+
+            <h2>触控模式 <span id="current-mode-indicator" style="font-size: 0.9rem; color: #4caf50;">（当前：点击）</span></h2>
+            <div class="controls" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <button id="touch-mode" class="btn primary">👆 点击</button>
+                <button id="swipe-mode" class="btn">👉 滑动</button>
+            </div>
+
+            <div class="quality-control">
+                <h2>画质控制</h2>
+                <label for="quality-slider">
+                    质量: <span id="quality-value">70</span>%
+                </label>
+                <input type="range" id="quality-slider" class="slider" min="30" max="100" value="70">
+            </div>
+
+            <div class="status-info">
+                <h2>连接状态</h2>
+                <div class="status-item">
+                    <span>WebSocket</span>
+                    <span>
+                        <span id="ws-status">未连接</span>
+                        <span id="ws-indicator" class="status-indicator disconnected"></span>
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span>延迟</span>
+                    <span id="latency">--</span>
+                </div>
+                <div class="status-item">
+                    <span>FPS</span>
+                    <span id="fps">--</span>
+                </div>
+                <div class="status-item">
+                    <span>分辨率</span>
+                    <span id="resolution">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="js/screen-viewer.js"></script>
+</body>
+</html>

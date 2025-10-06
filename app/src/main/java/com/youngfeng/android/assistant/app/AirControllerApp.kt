@@ -6,6 +6,7 @@ import android.os.Looper
 import com.youngfeng.android.assistant.BuildConfig
 import com.youngfeng.android.assistant.Constants
 import com.youngfeng.android.assistant.db.RoomDatabaseHolder
+import com.youngfeng.android.assistant.util.WebAssetsUtil
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.LinkedBlockingQueue
@@ -42,6 +43,9 @@ class AirControllerApp : Application() {
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+
+        // Copy web assets to cache directory for serving via HTTP
+        WebAssetsUtil.copyWebAssetsToCache(this)
     }
 
     private fun clearExpiredZipFiles() {

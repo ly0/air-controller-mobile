@@ -2,9 +2,11 @@ package com.youngfeng.android.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
+import android.media.projection.MediaProjectionManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -14,8 +16,10 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -42,8 +46,11 @@ import com.youngfeng.android.assistant.model.Device
 import com.youngfeng.android.assistant.model.LogType
 import com.youngfeng.android.assistant.scan.ScanActivity
 import com.youngfeng.android.assistant.service.NetworkService
+import com.youngfeng.android.assistant.util.AccessibilityUtil
 import com.youngfeng.android.assistant.util.CommonUtil
 import com.youngfeng.android.assistant.util.NetworkUtil
+import com.youngfeng.android.assistant.util.PermissionChecker
+import com.youngfeng.android.assistant.util.PermissionStatus
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -87,6 +94,10 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private val mPermissionManager by lazy {
         com.youngfeng.android.assistant.manager.PermissionManager.with(this)
     }
+    private val mMediaProjectionManager by lazy {
+        getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    }
+    private lateinit var mScreenCaptureLauncher: ActivityResultLauncher<Intent>
     private var mHotspotCheckTimer: Timer? = null
     private lateinit var mLogAdapter: LogAdapter
     private lateinit var mIpWhitelistAdapter: IpWhitelistAdapter
@@ -141,6 +152,8 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         private const val RC_PERM_GET_ACCOUNTS = 3
         private const val RC_PERM_READ_CONTACTS = 4
         private const val RC_PERM_WRITE_CONTACTS = 5
+        private const val RC_SCREEN_CAPTURE = 6
+        const val ACTION_REQUEST_SCREEN_CAPTURE = "com.youngfeng.android.assistant.REQUEST_SCREEN_CAPTURE"
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -163,6 +176,13 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         }
 
         registerUninstallLauncher()
+        registerScreenCaptureLauncher()
+
+        // Handle screen capture request from intent
+        if (intent?.action == ACTION_REQUEST_SCREEN_CAPTURE) {
+            requestScreenCapture()
+        }
+
         startNetworkService()
 
         // 从SharedPreferences读取服务状态并同步UI
@@ -262,7 +282,103 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                     }
                 }
             }
+
+            this.textRefreshPermissions.setOnClickListener {
+                updatePermissionsStatus()
+                mViewModel.addLogEntry("权限状态已刷新", LogType.INFO)
+            }
         }
+
+        setupPermissionsStatusObserver()
+    }
+
+    private fun setupPermissionsStatusObserver() {
+        mViewModel.permissionStatuses.observe(this) { permissionStatuses ->
+            updatePermissionsUI(permissionStatuses)
+        }
+    }
+
+    private fun updatePermissionsUI(permissionStatuses: List<PermissionStatus>) {
+        val layoutPermissionsList = mViewDataBinding?.layoutPermissionsList ?: return
+        layoutPermissionsList.removeAllViews()
+
+        permissionStatuses.forEach { status ->
+            val itemView = LayoutInflater.from(this).inflate(
+                R.layout.item_permission_status,
+                layoutPermissionsList,
+                false
+            )
+
+            val textPermissionName = itemView.findViewById<TextView>(R.id.text_permission_name)
+            val textPermissionDescription = itemView.findViewById<TextView>(R.id.text_permission_description)
+            val textPermissionStatus = itemView.findViewById<TextView>(R.id.text_permission_status)
+
+            textPermissionName.text = status.name
+            textPermissionDescription.text = status.description
+
+            if (status.isGranted) {
+                textPermissionStatus.text = getString(R.string.permission_granted)
+                textPermissionStatus.setTextColor(getColor(android.R.color.holo_green_dark))
+                textPermissionStatus.setBackgroundResource(R.drawable.background_permission_granted)
+            } else {
+                textPermissionStatus.text = getString(R.string.permission_not_granted)
+                textPermissionStatus.setTextColor(getColor(android.R.color.holo_red_dark))
+                textPermissionStatus.setBackgroundResource(R.drawable.background_permission_not_granted)
+            }
+
+            // 点击未授予的权限项跳转到相应的设置页面
+            if (!status.isGranted) {
+                itemView.setOnClickListener {
+                    handlePermissionClick(status)
+                }
+            }
+
+            layoutPermissionsList.addView(itemView)
+        }
+    }
+
+    private fun handlePermissionClick(status: PermissionStatus) {
+        when (status.action) {
+            "storage" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // Android 11+ 需要跳转到特殊设置页面
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        CommonUtil.openAppDetailSettings(this)
+                    }
+                } else {
+                    CommonUtil.openAppDetailSettings(this)
+                }
+            }
+            "notification" -> {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    CommonUtil.openAppDetailSettings(this)
+                }
+            }
+            "overlay" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        CommonUtil.openAppDetailSettings(this)
+                    }
+                }
+            }
+            "accessibility" -> {
+                AccessibilityUtil.openAccessibilitySettings(this)
+            }
+            else -> {
+                CommonUtil.openAppDetailSettings(this)
+            }
+        }
+        mViewModel.addLogEntry("正在打开 ${status.name} 设置", LogType.INFO)
     }
 
     private fun setupLogRecyclerView() {
@@ -312,6 +428,75 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                     batchUninstall(firstPackageName)
                 }
             }
+    }
+
+    private fun registerScreenCaptureLauncher() {
+        mScreenCaptureLauncher =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                if (result.resultCode == Activity.RESULT_OK) {
+                    result.data?.let { data ->
+                        // Start the screen capture service
+                        val serviceIntent = Intent(this, com.youngfeng.android.assistant.service.ScreenCaptureService::class.java).apply {
+                            action = com.youngfeng.android.assistant.service.ScreenCaptureService.ACTION_START_CAPTURE
+                            putExtra(com.youngfeng.android.assistant.service.ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                            putExtra(com.youngfeng.android.assistant.service.ScreenCaptureService.EXTRA_RESULT_DATA, data)
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+
+                        Timber.d("Screen capture permission granted, starting service")
+                    }
+                } else {
+                    Timber.w("Screen capture permission denied")
+                }
+            }
+    }
+
+    private fun requestScreenCapture() {
+        try {
+            // Check if accessibility service is enabled
+            if (!com.youngfeng.android.assistant.util.AccessibilityUtil.isAccessibilityServiceEnabled(this)) {
+                // Show dialog to prompt user to enable accessibility service
+                showAccessibilityServicePrompt()
+            } else {
+                // Proceed with screen capture
+                launchScreenCapture()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to request screen capture permission")
+        }
+    }
+
+    private fun launchScreenCapture() {
+        try {
+            val captureIntent = mMediaProjectionManager.createScreenCaptureIntent()
+            mScreenCaptureLauncher.launch(captureIntent)
+            Timber.d("Requesting screen capture permission")
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to request screen capture permission")
+        }
+    }
+
+    private fun showAccessibilityServicePrompt() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.accessibility_service_required)
+            .setMessage(R.string.accessibility_service_prompt)
+            .setPositiveButton(R.string.go_to_settings) { _, _ ->
+                com.youngfeng.android.assistant.util.AccessibilityUtil.openAccessibilitySettings(this)
+                // Also proceed with screen capture
+                launchScreenCapture()
+            }
+            .setNegativeButton(R.string.cancel) { dialog, _ ->
+                dialog.dismiss()
+                // Still allow screen capture, just without remote control
+                launchScreenCapture()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun registerNetworkListener() {
@@ -458,6 +643,10 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         EasyPermissions.hasPermissions(this, *permissions.toTypedArray()).apply {
             mViewModel.updateAllPermissionsGranted(this)
         }
+
+        // 更新详细的权限状态列表
+        val permissionStatuses = PermissionChecker.checkAllPermissions(this)
+        mViewModel.updatePermissionStatuses(permissionStatuses)
     }
 
     // 请求必要权限，includeAppNeeded为false时，表示只请求桌面端所需手机权限，否则请求所有app所需权限
@@ -622,6 +811,15 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         updatePermissionsStatus()
         updateNetworkStatus()
         mViewModel.refreshIpWhitelist()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+
+        // Handle screen capture request if activity is already running
+        if (intent?.action == ACTION_REQUEST_SCREEN_CAPTURE) {
+            requestScreenCapture()
+        }
     }
 
     override fun onDestroy() {

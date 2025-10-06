@@ -18,11 +18,20 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
 import timber.log.Timber
 import java.io.File
+import java.time.Duration
 
 fun Application.configureKtorServer(context: Context) {
     install(IpWhitelistPlugin)
+
+    install(WebSockets) {
+        pingPeriod = Duration.ofSeconds(30)
+        timeout = Duration.ofSeconds(15)
+        maxFrameSize = Long.MAX_VALUE
+        masking = false
+    }
 
     install(ContentNegotiation) {
         gson {
@@ -89,6 +98,10 @@ fun Application.configureKtorServer(context: Context) {
         configureVideoRoutes(context)
         configureAudioRoutes(context)
         configureContactRoutes(context)
+        configureScreenRoutes(context)
+
+        // WebSocket 路由
+        configureRemoteControlWebSocket(context)
     }
 }
 
