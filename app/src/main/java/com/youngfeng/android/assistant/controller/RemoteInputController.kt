@@ -92,20 +92,41 @@ class RemoteInputController(private val context: Context) : ScreenStreamWebSocke
     }
 
     override fun onBackPressed() {
+        android.util.Log.d("RemoteInputCtrl", "★★★ onBackPressed called")
         controllerScope.launch {
-            executeShellCommand("input keyevent ${KeyEvent.KEYCODE_BACK}")
+            val service = accessibilityService as? com.youngfeng.android.assistant.service.RemoteControlAccessibilityService
+            if (service != null) {
+                val success = service.performBack()
+                android.util.Log.d("RemoteInputCtrl", "★★★ performBack result: $success")
+            } else {
+                android.util.Log.w("RemoteInputCtrl", "★★★ Accessibility service not available for back action")
+            }
         }
     }
 
     override fun onHomePressed() {
+        android.util.Log.d("RemoteInputCtrl", "★★★ onHomePressed called")
         controllerScope.launch {
-            executeShellCommand("input keyevent ${KeyEvent.KEYCODE_HOME}")
+            val service = accessibilityService as? com.youngfeng.android.assistant.service.RemoteControlAccessibilityService
+            if (service != null) {
+                val success = service.performHome()
+                android.util.Log.d("RemoteInputCtrl", "★★★ performHome result: $success")
+            } else {
+                android.util.Log.w("RemoteInputCtrl", "★★★ Accessibility service not available for home action")
+            }
         }
     }
 
     override fun onRecentAppsPressed() {
+        android.util.Log.d("RemoteInputCtrl", "★★★ onRecentAppsPressed called")
         controllerScope.launch {
-            executeShellCommand("input keyevent ${KeyEvent.KEYCODE_APP_SWITCH}")
+            val service = accessibilityService as? com.youngfeng.android.assistant.service.RemoteControlAccessibilityService
+            if (service != null) {
+                val success = service.performRecents()
+                android.util.Log.d("RemoteInputCtrl", "★★★ performRecents result: $success")
+            } else {
+                android.util.Log.w("RemoteInputCtrl", "★★★ Accessibility service not available for recents action")
+            }
         }
     }
 
@@ -276,6 +297,7 @@ class RemoteInputController(private val context: Context) : ScreenStreamWebSocke
     private suspend fun executeShellCommand(command: String): Unit = withContext(Dispatchers.IO) {
         try {
             Timber.d("Executing shell command: $command")
+            android.util.Log.d("RemoteInputCtrl", "★★★ Executing: $command")
             // Use sh -c to execute the command
             val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             val exitCode = process.waitFor()
@@ -283,11 +305,14 @@ class RemoteInputController(private val context: Context) : ScreenStreamWebSocke
             if (exitCode != 0) {
                 val errorOutput = process.errorStream.bufferedReader().readText()
                 Timber.w("Shell command failed with exit code $exitCode: $errorOutput")
+                android.util.Log.w("RemoteInputCtrl", "★★★ Command failed: exit=$exitCode, error=$errorOutput")
             } else {
                 Timber.d("Shell command executed successfully: $command")
+                android.util.Log.d("RemoteInputCtrl", "★★★ Command success: $command")
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to execute shell command: $command")
+            android.util.Log.e("RemoteInputCtrl", "★★★ Command exception: $command", e)
         }
     }
 

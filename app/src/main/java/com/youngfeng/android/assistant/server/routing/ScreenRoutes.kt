@@ -381,15 +381,35 @@ private suspend fun DefaultWebSocketServerSession.handleSwipeEvent(json: JsonObj
 private suspend fun DefaultWebSocketServerSession.handleNavigationEvent(json: JsonObject) {
     try {
         val button = json.get("button")?.asString ?: return
+        android.util.Log.d("RemoteWS", "★★★ Navigation event: button=$button")
+
+        val controller = ScreenStreamManager.getInputController()
+        if (controller == null) {
+            android.util.Log.e("RemoteWS", "★★★ InputController is null!")
+            return
+        }
 
         when (button) {
-            "back" -> ScreenStreamManager.getInputController()?.onBackPressed()
-            "home" -> ScreenStreamManager.getInputController()?.onHomePressed()
-            "recent" -> ScreenStreamManager.getInputController()?.onRecentAppsPressed()
-            else -> Timber.w("Unknown navigation button: $button")
+            "back" -> {
+                android.util.Log.d("RemoteWS", "★★★ Executing back button")
+                controller.onBackPressed()
+            }
+            "home" -> {
+                android.util.Log.d("RemoteWS", "★★★ Executing home button")
+                controller.onHomePressed()
+            }
+            "recent" -> {
+                android.util.Log.d("RemoteWS", "★★★ Executing recent button")
+                controller.onRecentAppsPressed()
+            }
+            else -> {
+                Timber.w("Unknown navigation button: $button")
+                android.util.Log.w("RemoteWS", "★★★ Unknown button: $button")
+            }
         }
     } catch (e: Exception) {
         Timber.e(e, "Error handling navigation event")
+        android.util.Log.e("RemoteWS", "★★★ Navigation error", e)
     }
 }
 

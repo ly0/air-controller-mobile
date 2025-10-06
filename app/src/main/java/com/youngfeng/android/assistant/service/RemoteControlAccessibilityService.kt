@@ -46,4 +46,40 @@ class RemoteControlAccessibilityService : AccessibilityService() {
         val intent = Intent(ACTION_ACCESSIBILITY_DISCONNECTED)
         sendBroadcast(intent)
     }
+
+    /**
+     * Perform global back action
+     */
+    fun performBack(): Boolean {
+        return try {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to perform back action")
+            false
+        }
+    }
+
+    /**
+     * Perform global home action
+     */
+    fun performHome(): Boolean {
+        return try {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to perform home action")
+            false
+        }
+    }
+
+    /**
+     * Perform global recents action
+     */
+    fun performRecents(): Boolean {
+        return try {
+            performGlobalAction(GLOBAL_ACTION_RECENTS)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to perform recents action")
+            false
+        }
+    }
 }
