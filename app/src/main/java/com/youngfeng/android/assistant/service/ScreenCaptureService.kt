@@ -45,6 +45,18 @@ class ScreenCaptureService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var captureJob: Job? = null
 
+    // Performance optimization variables
+    private var targetFps = 30 // Default target FPS
+    private var dynamicQuality = 70 // Dynamic JPEG quality
+    private var lastFrameTime = System.currentTimeMillis()
+    private var frameSkipCount = 0
+    private var adaptiveScaleFactor = 2
+    private val performanceMonitor = PerformanceMonitor()
+
+    // Reusable objects to reduce memory allocation
+    private var reusableBitmap: Bitmap? = null
+    private val jpegOutputStream = ByteArrayOutputStream()
+
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var windowManager: WindowManager
     private lateinit var displayMetrics: DisplayMetrics
@@ -163,16 +175,21 @@ class ScreenCaptureService : Service() {
             val height = displayMetrics.heightPixels
             val density = displayMetrics.densityDpi
 
-            // Reduce resolution for better performance
-            val scaleFactor = 2
-            val scaledWidth = width / scaleFactor
-            val scaledHeight = height / scaleFactor
+            // Adaptive resolution scaling for better performance
+            adaptiveScaleFactor = when {
+                width > 2000 -> 3 // Very high resolution screens
+                width > 1500 -> 2 // Normal high resolution
+                else -> 1 // Lower resolution screens
+            }
+            val scaledWidth = width / adaptiveScaleFactor
+            val scaledHeight = height / adaptiveScaleFactor
 
+            // Increase buffer size for smoother capture
             imageReader = ImageReader.newInstance(
                 scaledWidth,
                 scaledHeight,
                 PixelFormat.RGBA_8888,
-                2
+                5 // Increased from 2 to 5 for better buffering
             )
 
             // Create VirtualDisplay
@@ -180,7 +197,7 @@ class ScreenCaptureService : Service() {
                 "ScreenCapture",
                 scaledWidth,
                 scaledHeight,
-                density / scaleFactor,
+                density / adaptiveScaleFactor,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
                 imageReader!!.surface,
                 null,
@@ -188,8 +205,8 @@ class ScreenCaptureService : Service() {
             )
 
             // Initialize ScreenStreamManager with input controller
-            ScreenStreamManager.initInputController(this, width, height, scaleFactor)
-            Timber.d("ScreenStreamManager initialized with dimensions: ${width}x${height}, scale: $scaleFactor")
+            ScreenStreamManager.initInputController(this, width, height, adaptiveScaleFactor)
+            Timber.d("ScreenStreamManager initialized with dimensions: ${width}x${height}, scale: $adaptiveScaleFactor, targetFPS: $targetFps")
 
             // Start capturing frames
             startFrameCapture()
@@ -206,8 +223,26 @@ class ScreenCaptureService : Service() {
         captureJob = serviceScope.launch {
             while (isActive) {
                 try {
+                    val startTime = System.currentTimeMillis()
+
+                    // Capture and send frame
                     captureAndSendFrame()
-                    delay(50) // ~20 FPS
+
+                    // Calculate dynamic delay based on target FPS
+                    val processingTime = System.currentTimeMillis() - startTime
+                    val targetFrameTime = 1000L / targetFps
+                    val delayTime = (targetFrameTime - processingTime).coerceAtLeast(1)
+
+                    // Adaptive FPS adjustment based on performance
+                    if (processingTime > targetFrameTime) {
+                        // If processing takes too long, reduce quality or skip frames
+                        performanceMonitor.recordSlowFrame()
+                        adjustPerformanceSettings()
+                    } else {
+                        performanceMonitor.recordNormalFrame()
+                    }
+
+                    delay(delayTime)
                 } catch (e: Exception) {
                     if (e !is CancellationException) {
                         Timber.e(e, "Error capturing frame")
@@ -221,10 +256,13 @@ class ScreenCaptureService : Service() {
         imageReader?.acquireLatestImage()?.use { image ->
             try {
                 val bitmap = imageToBitmap(image)
-                val jpegData = bitmapToJpeg(bitmap, 70)
+                val jpegData = bitmapToJpeg(bitmap, dynamicQuality)
 
                 // Broadcast frame to all connected WebSocket clients via ScreenStreamManager
                 ScreenStreamManager.broadcastFrame(jpegData)
+
+                // Update statistics
+                performanceMonitor.recordFrameSize(jpegData.size)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to process frame")
             }
@@ -238,15 +276,28 @@ class ScreenCaptureService : Service() {
         val rowStride = planes[0].rowStride
         val rowPadding = rowStride - pixelStride * image.width
 
-        val bitmap = Bitmap.createBitmap(
-            image.width + rowPadding / pixelStride,
-            image.height,
-            Bitmap.Config.ARGB_8888
-        )
+        val bitmapWidth = image.width + rowPadding / pixelStride
+        val bitmapHeight = image.height
+
+        // Reuse existing bitmap if possible
+        var bitmap = reusableBitmap
+        if (bitmap == null || bitmap.width != bitmapWidth || bitmap.height != bitmapHeight) {
+            // Create new bitmap only if dimensions changed or doesn't exist
+            bitmap = Bitmap.createBitmap(
+                bitmapWidth,
+                bitmapHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            reusableBitmap = bitmap
+        }
+
+        // Rewind buffer to the beginning
+        buffer.rewind()
         bitmap.copyPixelsFromBuffer(buffer)
 
-        // Crop the bitmap to remove padding
+        // Crop the bitmap to remove padding if necessary
         return if (rowPadding > 0) {
+            // Note: This creates a view, not a copy, so it's efficient
             Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
         } else {
             bitmap
@@ -254,9 +305,13 @@ class ScreenCaptureService : Service() {
     }
 
     private fun bitmapToJpeg(bitmap: Bitmap, quality: Int): ByteArray {
-        val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
-        return outputStream.toByteArray()
+        // Reset the reusable output stream
+        jpegOutputStream.reset()
+
+        // Compress with optimal settings for screen sharing
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, jpegOutputStream)
+
+        return jpegOutputStream.toByteArray()
     }
 
     private fun stopCapture() {
@@ -271,6 +326,11 @@ class ScreenCaptureService : Service() {
 
         mediaProjection?.stop()
         mediaProjection = null
+
+        // Clean up reusable objects
+        reusableBitmap?.recycle()
+        reusableBitmap = null
+        jpegOutputStream.reset()
 
         // Clean up ScreenStreamManager
         ScreenStreamManager.cleanup()
@@ -293,4 +353,92 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun adjustPerformanceSettings() {
+        // Adjust quality based on performance
+        if (performanceMonitor.getAverageSlowFrameRate() > 0.3f) {
+            // More than 30% slow frames, reduce quality
+            if (dynamicQuality > 40) {
+                dynamicQuality = (dynamicQuality - 10).coerceAtLeast(40)
+                Timber.d("Reducing JPEG quality to $dynamicQuality due to performance issues")
+            } else if (targetFps > 15) {
+                // If quality is already low, reduce FPS
+                targetFps = (targetFps - 5).coerceAtLeast(15)
+                Timber.d("Reducing target FPS to $targetFps due to performance issues")
+            }
+        } else if (performanceMonitor.getAverageSlowFrameRate() < 0.1f) {
+            // Less than 10% slow frames, can increase quality
+            if (targetFps < 30) {
+                targetFps = (targetFps + 5).coerceAtMost(30)
+                Timber.d("Increasing target FPS to $targetFps due to good performance")
+            } else if (dynamicQuality < 85) {
+                dynamicQuality = (dynamicQuality + 5).coerceAtMost(85)
+                Timber.d("Increasing JPEG quality to $dynamicQuality due to good performance")
+            }
+        }
+    }
+
+    fun updateQualitySetting(quality: Int) {
+        dynamicQuality = quality.coerceIn(30, 100)
+        Timber.d("Quality manually updated to $dynamicQuality")
+    }
+
+    fun updateTargetFps(fps: Int) {
+        targetFps = fps.coerceIn(10, 60)
+        Timber.d("Target FPS manually updated to $targetFps")
+    }
+
+    /**
+     * Nested class to monitor performance metrics
+     */
+    private class PerformanceMonitor {
+        private val frameHistory = mutableListOf<FrameMetrics>()
+        private val maxHistorySize = 100
+
+        data class FrameMetrics(
+            val timestamp: Long,
+            val isSlow: Boolean,
+            val frameSize: Int
+        )
+
+        fun recordSlowFrame() {
+            addFrame(FrameMetrics(System.currentTimeMillis(), true, 0))
+        }
+
+        fun recordNormalFrame() {
+            addFrame(FrameMetrics(System.currentTimeMillis(), false, 0))
+        }
+
+        fun recordFrameSize(size: Int) {
+            if (frameHistory.isNotEmpty()) {
+                val lastFrame = frameHistory.last()
+                frameHistory[frameHistory.size - 1] = lastFrame.copy(frameSize = size)
+            }
+        }
+
+        private fun addFrame(metrics: FrameMetrics) {
+            frameHistory.add(metrics)
+            if (frameHistory.size > maxHistorySize) {
+                frameHistory.removeAt(0)
+            }
+        }
+
+        fun getAverageSlowFrameRate(): Float {
+            if (frameHistory.isEmpty()) return 0f
+            val recentFrames = frameHistory.takeLast(30)
+            val slowCount = recentFrames.count { it.isSlow }
+            return slowCount.toFloat() / recentFrames.size
+        }
+
+        fun getAverageFrameSize(): Int {
+            if (frameHistory.isEmpty()) return 0
+            val recentFrames = frameHistory.takeLast(30).filter { it.frameSize > 0 }
+            if (recentFrames.isEmpty()) return 0
+            return recentFrames.sumOf { it.frameSize } / recentFrames.size
+        }
+
+        fun reset() {
+            frameHistory.clear()
+        }
+    }
 }

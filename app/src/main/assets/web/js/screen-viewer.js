@@ -2,7 +2,10 @@
 class ScreenViewer {
     constructor() {
         this.canvas = document.getElementById('screen-canvas');
-        this.ctx = this.canvas.getContext('2d');
+        this.ctx = this.canvas.getContext('2d', {
+            alpha: false, // Disable alpha for better performance
+            desynchronized: true // Reduce latency
+        });
         this.ws = null;
         this.isConnected = false;
         this.touchMode = 'tap'; // tap or swipe
@@ -14,6 +17,28 @@ class ScreenViewer {
         this.serverHost = window.location.hostname;
         this.httpPort = window.location.port || 9527;
         this.wsPort = 9527; // WebSocket now on same port as HTTP
+
+        // Performance optimization: Frame queue and object pool
+        this.frameQueue = [];
+        this.maxQueueSize = 3;
+        this.isRendering = false;
+        this.currentImage = new Image();
+        this.nextImage = new Image();
+        this.imagePool = [];
+        this.maxImagePoolSize = 5;
+
+        // Performance monitoring
+        this.performanceMonitor = {
+            frameTimestamps: [],
+            droppedFrames: 0,
+            totalFrames: 0,
+            lastReportTime: Date.now()
+        };
+
+        // Initialize image pool
+        for (let i = 0; i < this.maxImagePoolSize; i++) {
+            this.imagePool.push(new Image());
+        }
 
         this.init();
     }
@@ -206,27 +231,96 @@ class ScreenViewer {
     }
 
     handleScreenFrame(arrayBuffer) {
+        // Track total frames received
+        this.performanceMonitor.totalFrames++;
+
+        // Add frame to queue
+        if (this.frameQueue.length >= this.maxQueueSize) {
+            // Drop oldest frame if queue is full
+            const droppedFrame = this.frameQueue.shift();
+            if (droppedFrame.url) {
+                URL.revokeObjectURL(droppedFrame.url);
+            }
+            this.performanceMonitor.droppedFrames++;
+        }
+
         const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
         const url = URL.createObjectURL(blob);
-        const img = new Image();
+
+        this.frameQueue.push({ blob, url, timestamp: Date.now() });
+
+        // Start rendering if not already running
+        if (!this.isRendering) {
+            this.renderNextFrame();
+        }
+
+        // Send performance report periodically
+        this.checkAndSendPerformanceReport();
+    }
+
+    renderNextFrame() {
+        if (this.frameQueue.length === 0) {
+            this.isRendering = false;
+            return;
+        }
+
+        this.isRendering = true;
+        const frame = this.frameQueue.shift();
+
+        // Get an image from the pool or create a new one
+        const img = this.getImageFromPool();
 
         img.onload = () => {
-            // Update canvas size if needed
-            if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
-                this.canvas.width = img.width;
-                this.canvas.height = img.height;
-                document.getElementById('resolution').textContent = `${img.width}x${img.height}`;
-            }
+            // Use requestAnimationFrame for smooth rendering
+            requestAnimationFrame(() => {
+                // Update canvas size if needed
+                if (this.canvas.width !== img.width || this.canvas.height !== img.height) {
+                    this.canvas.width = img.width;
+                    this.canvas.height = img.height;
+                    document.getElementById('resolution').textContent = `${img.width}x${img.height}`;
+                }
 
-            // Draw image to canvas
-            this.ctx.drawImage(img, 0, 0);
-            URL.revokeObjectURL(url);
+                // Draw image to canvas with optimal settings
+                this.ctx.imageSmoothingEnabled = false; // Disable smoothing for better performance
+                this.ctx.drawImage(img, 0, 0);
 
-            // Update FPS counter
-            this.frameCount++;
+                // Clean up
+                URL.revokeObjectURL(frame.url);
+                this.returnImageToPool(img);
+
+                // Update FPS counter
+                this.frameCount++;
+
+                // Render next frame
+                this.renderNextFrame();
+            });
         };
 
-        img.src = url;
+        img.onerror = () => {
+            URL.revokeObjectURL(frame.url);
+            this.returnImageToPool(img);
+            this.renderNextFrame();
+        };
+
+        img.src = frame.url;
+    }
+
+    getImageFromPool() {
+        if (this.imagePool.length > 0) {
+            return this.imagePool.pop();
+        }
+        return new Image();
+    }
+
+    returnImageToPool(img) {
+        // Reset the image
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
+
+        if (this.imagePool.length < this.maxImagePoolSize) {
+            this.imagePool.push(img);
+        }
     }
 
     handleJsonMessage(message) {
@@ -503,6 +597,58 @@ class ScreenViewer {
         setTimeout(() => {
             toast.classList.remove('show');
         }, 3000);
+    }
+
+    checkAndSendPerformanceReport() {
+        const now = Date.now();
+        const timeSinceLastReport = now - this.performanceMonitor.lastReportTime;
+
+        // Send report every 5 seconds
+        if (timeSinceLastReport > 5000 && this.isConnected) {
+            const dropRate = this.performanceMonitor.droppedFrames /
+                            Math.max(1, this.performanceMonitor.totalFrames);
+
+            const performanceReport = {
+                type: 'performance',
+                fps: this.currentFps,
+                dropRate: dropRate,
+                latency: parseInt(document.getElementById('latency').textContent) || 0,
+                queueSize: this.frameQueue.length
+            };
+
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify(performanceReport));
+            }
+
+            // Reset counters
+            this.performanceMonitor.droppedFrames = 0;
+            this.performanceMonitor.totalFrames = 0;
+            this.performanceMonitor.lastReportTime = now;
+
+            // Auto-adjust quality based on performance
+            this.autoAdjustQuality(dropRate);
+        }
+    }
+
+    autoAdjustQuality(dropRate) {
+        const qualitySlider = document.getElementById('quality-slider');
+        const currentQuality = parseInt(qualitySlider.value);
+
+        if (dropRate > 0.2 && currentQuality > 40) {
+            // High drop rate, reduce quality
+            const newQuality = Math.max(40, currentQuality - 10);
+            qualitySlider.value = newQuality;
+            document.getElementById('quality-value').textContent = newQuality;
+            this.sendQualityUpdate(newQuality);
+            console.log(`Auto-adjusting quality down to ${newQuality} due to high drop rate`);
+        } else if (dropRate < 0.05 && this.currentFps >= 25 && currentQuality < 80) {
+            // Good performance, increase quality
+            const newQuality = Math.min(80, currentQuality + 5);
+            qualitySlider.value = newQuality;
+            document.getElementById('quality-value').textContent = newQuality;
+            this.sendQualityUpdate(newQuality);
+            console.log(`Auto-adjusting quality up to ${newQuality} due to good performance`);
+        }
     }
 }
 

@@ -109,6 +109,30 @@ object ScreenStreamManager {
     fun getInputController(): RemoteInputController? = remoteInputController
 
     /**
+     * Update quality settings based on client feedback
+     */
+    fun updateQualitySettings(quality: Int) {
+        // This would communicate with ScreenCaptureService
+        // For now, just log the request
+        Timber.d("Quality update requested from client: $quality")
+    }
+
+    /**
+     * Get current stream statistics
+     */
+    fun getStreamStats(): StreamStats {
+        return StreamStats(
+            connectionCount = connections.size,
+            isActive = connections.isNotEmpty()
+        )
+    }
+
+    data class StreamStats(
+        val connectionCount: Int,
+        val isActive: Boolean
+    )
+
+    /**
      * Clean up all resources
      */
     fun cleanup() {

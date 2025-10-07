@@ -63,6 +63,8 @@ class ScreenStreamWebSocketServer(port: Int) : WebSocketServer(InetSocketAddress
                     "swipe" -> handleSwipeEvent(jsonObject)
                     "navigation" -> handleNavigationEvent(jsonObject)
                     "ping" -> handlePing(conn)
+                    "quality" -> handleQualityUpdate(jsonObject)
+                    "performance" -> handlePerformanceReport(jsonObject)
                     else -> Timber.w("Unknown event type: $eventType")
                 }
             }
@@ -215,6 +217,45 @@ class ScreenStreamWebSocketServer(port: Int) : WebSocketServer(InetSocketAddress
     fun closeAllConnections() {
         connections.forEach { connection ->
             connection.close(1000, "Server shutting down")
+        }
+    }
+
+    private fun handleQualityUpdate(json: JsonObject) {
+        try {
+            val quality = json.get("value")?.asInt ?: return
+            Timber.d("Received quality update request: $quality")
+
+            // Update the quality in ScreenCaptureService
+            val captureService = com.youngfeng.android.assistant.service.ScreenCaptureService::class.java
+            val method = captureService.getDeclaredMethod("updateQualitySetting", Int::class.java)
+            // Note: This would need proper service binding or broadcast to work
+            // For now, log the request
+            Timber.d("Quality update requested: $quality (implementation needed)")
+        } catch (e: Exception) {
+            Timber.e(e, "Error handling quality update")
+        }
+    }
+
+    private fun handlePerformanceReport(json: JsonObject) {
+        try {
+            val fps = json.get("fps")?.asFloat ?: 0f
+            val dropRate = json.get("dropRate")?.asFloat ?: 0f
+            val latency = json.get("latency")?.asInt ?: 0
+
+            Timber.d("Client performance report - FPS: $fps, Drop rate: $dropRate, Latency: $latency ms")
+
+            // Adjust server settings based on client performance
+            if (dropRate > 0.2f || fps < 15) {
+                // Client is struggling, suggest reducing quality
+                val suggestion = JsonObject().apply {
+                    addProperty("type", "performance_suggestion")
+                    addProperty("action", "reduce_quality")
+                    addProperty("reason", "high_drop_rate")
+                }
+                broadcastJson(gson.toJson(suggestion))
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error handling performance report")
         }
     }
 }
