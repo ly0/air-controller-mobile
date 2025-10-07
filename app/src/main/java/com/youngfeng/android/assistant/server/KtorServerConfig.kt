@@ -102,6 +102,7 @@ fun Application.configureKtorServer(context: Context) {
 
         // WebSocket 路由
         configureRemoteControlWebSocket(context)
+        configureSignalingRoute()
     }
 }
 

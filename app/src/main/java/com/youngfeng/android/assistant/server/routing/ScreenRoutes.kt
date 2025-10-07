@@ -6,6 +6,9 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.youngfeng.android.assistant.MainActivity
 import com.youngfeng.android.assistant.server.entity.HttpResponseEntity
+import com.youngfeng.android.assistant.server.transport.TransportCapabilities
+import com.youngfeng.android.assistant.server.webrtc.SignalingManager
+import com.youngfeng.android.assistant.server.webrtc.SignalingMessage
 import com.youngfeng.android.assistant.server.websocket.ScreenStreamManager
 import com.youngfeng.android.assistant.service.ScreenCaptureService
 import io.ktor.http.*
@@ -19,6 +22,70 @@ import timber.log.Timber
 
 fun Route.configureScreenRoutes(context: Context) {
     route("/screen") {
+        // Get server capabilities for transport negotiation
+        get("/capabilities") {
+            try {
+                val capabilities = TransportCapabilities(
+                    // WebRTC is now enabled with community SDK
+                    webrtcSupported = true,
+                    websocketSupported = true,
+                    stunServers = listOf("stun:stun.l.google.com:19302"),
+                    turnServers = emptyList(),
+                    maxBitrate = 5_000_000,
+                    maxFramerate = 60
+                )
+
+                call.respond(HttpResponseEntity.success(capabilities))
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to get capabilities")
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    HttpResponseEntity.error<Any>(
+                        HttpStatusCode.InternalServerError.value,
+                        "Failed to get capabilities: ${e.message}"
+                    )
+                )
+            }
+        }
+
+        // Negotiate transport method
+        post("/negotiate") {
+            try {
+                val request = call.receive<Map<String, String>>()
+                val preferredTransport = request["preferred"] ?: "websocket"
+
+                // Select transport based on preference and server capabilities
+                val negotiation = if (preferredTransport == "webrtc") {
+                    mapOf(
+                        "transport" to "webrtc",
+                        "websocket_url" to null as String?,
+                        "signaling_url" to "/signaling",
+                        "ice_servers" to listOf(
+                            mapOf("urls" to "stun:stun.l.google.com:19302")
+                        )
+                    )
+                } else {
+                    mapOf(
+                        "transport" to "websocket",
+                        "websocket_url" to "/remote",
+                        "signaling_url" to null as String?,
+                        "ice_servers" to emptyList<Map<String, Any>>()
+                    )
+                }
+
+                call.respond(HttpResponseEntity.success(negotiation))
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to negotiate transport")
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    HttpResponseEntity.error<Any>(
+                        HttpStatusCode.InternalServerError.value,
+                        "Failed to negotiate: ${e.message}"
+                    )
+                )
+            }
+        }
+
         // Start screen capture
         post("/start") {
             try {
@@ -422,5 +489,94 @@ private suspend fun DefaultWebSocketServerSession.handlePing(gson: Gson) {
         send(Frame.Text(gson.toJson(response)))
     } catch (e: Exception) {
         Timber.e(e, "Error handling ping")
+    }
+}
+
+/**
+ * Configure WebRTC signaling route
+ * Handles SDP and ICE candidate exchange between Android and Web clients
+ */
+fun Route.configureSignalingRoute() {
+    val gson = Gson()
+
+    webSocket("/signaling") {
+        val sessionId = call.request.queryParameters["session_id"]
+            ?: java.util.UUID.randomUUID().toString()
+
+        Timber.d("SignalingRoute: New connection for session $sessionId")
+
+        try {
+            // Register this web session
+            SignalingManager.registerWebSession(sessionId, this)
+
+            // NOTE: WebRTC server-side integration is not complete
+            // The WebRTCSessionManager.onSignalingConnected would create PeerConnection here
+            // For now, this will log a warning and client will timeout and fallback to WebSocket
+            try {
+                com.youngfeng.android.assistant.server.webrtc.WebRTCSessionManager.onSignalingConnected(
+                    sessionId,
+                    "internal"
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "WebRTC initialization failed")
+            }
+
+            // Send ready message
+            val ready = JsonObject().apply {
+                addProperty("type", "ready")
+                addProperty("session_id", sessionId)
+            }
+            send(Frame.Text(gson.toJson(ready)))
+
+            // Handle incoming messages
+            for (frame in incoming) {
+                when (frame) {
+                    is Frame.Text -> {
+                        val text = frame.readText()
+                        Timber.d("SignalingRoute: Received message for session $sessionId: $text")
+
+                        try {
+                            val message = SignalingMessage.fromJson(text)
+
+                            // Forward to Android
+                            when (message) {
+                                is SignalingMessage.Offer,
+                                is SignalingMessage.Answer,
+                                is SignalingMessage.IceCandidate -> {
+                                    SignalingManager.forwardToAndroid(sessionId, text)
+                                }
+                                is SignalingMessage.Bye -> {
+                                    Timber.d("SignalingRoute: Client disconnecting")
+                                }
+                                else -> {
+                                    Timber.w("SignalingRoute: Unexpected message type: ${message.type}")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Timber.e(e, "SignalingRoute: Error processing message")
+
+                            val error = JsonObject().apply {
+                                addProperty("type", "error")
+                                addProperty("session_id", sessionId)
+                                addProperty("error", e.message ?: "Unknown error")
+                            }
+                            send(Frame.Text(gson.toJson(error)))
+                        }
+                    }
+                    is Frame.Close -> {
+                        Timber.d("SignalingRoute: Connection closing for session $sessionId")
+                    }
+                    else -> {
+                        // Ignore other frame types
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "SignalingRoute: WebSocket error for session $sessionId")
+        } finally {
+            // Unregister session
+            SignalingManager.unregisterWebSession(sessionId)
+            Timber.d("SignalingRoute: Connection closed for session $sessionId")
+        }
     }
 }

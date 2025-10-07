@@ -185,6 +185,16 @@ class ScreenCaptureService : Service() {
             // Setup ImageReader for capturing frames
             val width = displayMetrics.widthPixels
             val height = displayMetrics.heightPixels
+
+            // Initialize WebRTC session manager for potential WebRTC connections
+            mediaProjection?.let { projection ->
+                com.youngfeng.android.assistant.server.webrtc.WebRTCSessionManager.initialize(
+                    context = this,
+                    mediaProjection = projection,
+                    width = width,
+                    height = height
+                )
+            }
             val density = displayMetrics.densityDpi
 
             // Adaptive resolution scaling for better performance
@@ -395,6 +405,17 @@ class ScreenCaptureService : Service() {
                 // Broadcast frame to all connected WebSocket clients via ScreenStreamManager
                 ScreenStreamManager.broadcastFrame(jpegData)
 
+                // Push frame to WebRTC peers asynchronously (non-blocking)
+                if (com.youngfeng.android.assistant.server.webrtc.WebRTCSessionManager.getActivePeerCount() > 0) {
+                    serviceScope.launch(Dispatchers.Default) {
+                        try {
+                            com.youngfeng.android.assistant.server.webrtc.WebRTCSessionManager.pushFrame(bitmap)
+                        } catch (e: Exception) {
+                            Timber.e(e, "Failed to push WebRTC frame")
+                        }
+                    }
+                }
+
                 // Update statistics
                 performanceMonitor.recordFrameSize(jpegData.size)
             } catch (e: Exception) {
@@ -460,6 +481,9 @@ class ScreenCaptureService : Service() {
 
         imageReader?.close()
         imageReader = null
+
+        // Clean up WebRTC sessions
+        com.youngfeng.android.assistant.server.webrtc.WebRTCSessionManager.cleanup()
 
         mediaProjection?.stop()
         mediaProjection = null

@@ -2,6 +2,7 @@
 class ScreenViewer {
     constructor() {
         this.canvas = document.getElementById('screen-canvas');
+        this.videoElement = document.getElementById('screen-video');
         this.ctx = this.canvas.getContext('2d', {
             alpha: false, // Disable alpha for better performance
             desynchronized: true // Reduce latency
@@ -17,6 +18,11 @@ class ScreenViewer {
         this.serverHost = window.location.hostname;
         this.httpPort = window.location.port || 9527;
         this.wsPort = 9527; // WebSocket now on same port as HTTP
+
+        // Transport abstraction
+        this.negotiator = new TransportNegotiator(this.serverHost, this.httpPort);
+        this.transport = null; // Will be WebRTCTransport or WebSocket
+        this.transportType = null; // 'webrtc' or 'websocket'
 
         // Performance optimization: Frame queue and object pool
         this.frameQueue = [];
@@ -126,7 +132,7 @@ class ScreenViewer {
 
             if (data.data && data.data.is_running) {
                 this.updateButtonStates(true);
-                this.connectWebSocket();
+                await this.negotiateAndConnect();
             } else {
                 this.updateButtonStates(false);
             }
@@ -149,9 +155,9 @@ class ScreenViewer {
                 this.showToast('屏幕共享启动中，请在手机上授权');
                 this.updateButtonStates(true);
 
-                // Wait a bit then connect to WebSocket
-                setTimeout(() => {
-                    this.connectWebSocket();
+                // Wait a bit then negotiate and connect
+                setTimeout(async () => {
+                    await this.negotiateAndConnect();
                 }, 2000);
             } else {
                 this.showToast('启动失败: ' + data.msg);
@@ -160,6 +166,141 @@ class ScreenViewer {
             console.error('Failed to start screen share:', error);
             this.showToast('启动屏幕共享失败');
         }
+    }
+
+    async negotiateAndConnect() {
+        try {
+            console.log('Negotiating transport...');
+            document.getElementById('transport-type').textContent = '协商中...';
+
+            // Negotiate transport
+            const result = await this.negotiator.negotiate();
+            this.transportType = result.transport;
+
+            console.log('Negotiated transport:', this.transportType);
+
+            // Update UI
+            if (this.transportType === 'webrtc') {
+                document.getElementById('transport-type').textContent = '🚀 WebRTC (高性能)';
+                document.getElementById('transport-type').style.color = '#4caf50';
+            } else {
+                document.getElementById('transport-type').textContent = '📡 WebSocket (兼容)';
+                document.getElementById('transport-type').style.color = '#2196f3';
+            }
+
+            // Connect with selected transport
+            if (this.transportType === 'webrtc') {
+                await this.connectWebRTC(result.config);
+            } else {
+                await this.connectWebSocket();
+            }
+
+        } catch (error) {
+            console.error('Transport negotiation failed:', error);
+            this.showToast('传输协商失败，使用兼容模式');
+
+            // Fallback to WebSocket
+            document.getElementById('transport-type').textContent = '📡 WebSocket (降级)';
+            await this.connectWebSocket();
+        }
+    }
+
+    async connectWebRTC(config) {
+        try {
+            console.log('Connecting via WebRTC...');
+
+            const overlay = document.getElementById('connection-overlay');
+            overlay.classList.remove('hidden');
+
+            // Create WebRTC transport
+            this.transport = new WebRTCTransport();
+
+            // Handle connection state changes
+            this.transport.onConnectionStateChange = async (state) => {
+                console.log('WebRTC connection state:', state);
+
+                if (state === 'connected') {
+                    overlay.classList.add('hidden');
+                    this.isConnected = true;
+                    this.updateConnectionStatus(true);
+                    this.showToast('WebRTC 连接成功');
+
+                    // Show video, hide canvas
+                    this.videoElement.style.display = 'block';
+                    this.canvas.style.display = 'none';
+
+                    // Start stats monitoring
+                    this.startWebRTCStatsMonitoring();
+
+                } else if (state === 'failed' || state === 'disconnected') {
+                    overlay.classList.add('hidden');
+                    this.isConnected = false;
+                    this.updateConnectionStatus(false);
+
+                    if (state === 'failed') {
+                        this.showToast('WebRTC 连接失败，切换到兼容模式');
+                        // Fallback to WebSocket
+                        await this.fallbackToWebSocket();
+                    }
+                }
+            };
+
+            // Connect
+            const signalingUrl = config.signaling_url ||
+                                `ws://${this.serverHost}:${this.wsPort}/signaling`;
+
+            // Set a timeout for WebRTC connection
+            const connectionTimeout = setTimeout(async () => {
+                console.warn('WebRTC connection timeout, falling back to WebSocket');
+                this.showToast('WebRTC 连接超时，切换到兼容模式');
+                await this.fallbackToWebSocket();
+            }, 5000); // 5 second timeout
+
+            // Clear timeout if connection succeeds
+            const originalOnConnectionStateChange = this.transport.onConnectionStateChange;
+            this.transport.onConnectionStateChange = async (state) => {
+                if (state === 'connected' || state === 'failed') {
+                    clearTimeout(connectionTimeout);
+                }
+                if (originalOnConnectionStateChange) {
+                    await originalOnConnectionStateChange(state);
+                }
+            };
+
+            await this.transport.connect(signalingUrl, config.ice_servers);
+
+            // Render to video element
+            this.transport.renderVideo(this.videoElement);
+
+            console.log('WebRTC transport connected');
+
+        } catch (error) {
+            console.error('WebRTC connection error:', error);
+            this.showToast('WebRTC 连接错误，切换到兼容模式');
+            await this.fallbackToWebSocket();
+        }
+    }
+
+    async fallbackToWebSocket() {
+        console.log('Falling back to WebSocket...');
+
+        // Disconnect WebRTC if exists
+        if (this.transport) {
+            this.transport.disconnect();
+            this.transport = null;
+        }
+
+        // Update UI
+        this.transportType = 'websocket';
+        document.getElementById('transport-type').textContent = '📡 WebSocket (降级)';
+        document.getElementById('transport-type').style.color = '#ff9800';
+
+        // Show canvas, hide video
+        this.videoElement.style.display = 'none';
+        this.canvas.style.display = 'block';
+
+        // Connect via WebSocket
+        await this.connectWebSocket();
     }
 
     async stopScreenShare() {
@@ -173,9 +314,13 @@ class ScreenViewer {
 
             if (data.code === 0) {
                 this.showToast('屏幕共享已停止');
-                this.disconnectWebSocket();
+                this.disconnect(); // Use unified disconnect method
                 this.updateButtonStates(false);
                 this.clearCanvas();
+
+                // Reset transport type display
+                document.getElementById('transport-type').textContent = '未连接';
+                document.getElementById('transport-type').style.color = '';
             } else {
                 this.showToast('停止失败: ' + data.msg);
             }
@@ -245,6 +390,58 @@ class ScreenViewer {
         this.isConnected = false;
         this.updateConnectionStatus(false);
         this.stopPingInterval();
+    }
+
+    disconnect() {
+        // Disconnect based on transport type
+        if (this.transportType === 'webrtc' && this.transport) {
+            this.transport.disconnect();
+            this.transport = null;
+            this.stopWebRTCStatsMonitoring();
+        } else {
+            this.disconnectWebSocket();
+        }
+
+        this.isConnected = false;
+        this.updateConnectionStatus(false);
+    }
+
+    startWebRTCStatsMonitoring() {
+        // Stop any existing monitoring
+        this.stopWebRTCStatsMonitoring();
+
+        // Monitor stats every second
+        this.statsInterval = setInterval(async () => {
+            if (this.transport && this.transportType === 'webrtc') {
+                try {
+                    const stats = await this.transport.getStats();
+
+                    if (stats && stats.video) {
+                        // Update FPS
+                        const fps = Math.round(stats.video.fps || 0);
+                        document.getElementById('fps').textContent = fps;
+
+                        // Update latency (RTT)
+                        if (stats.connection && stats.connection.currentRtt) {
+                            const latency = Math.round(stats.connection.currentRtt * 1000);
+                            document.getElementById('latency').textContent = `${latency}ms`;
+                        }
+
+                        // Update frame count for overall FPS calculation
+                        this.frameCount++;
+                    }
+                } catch (error) {
+                    console.error('Error getting WebRTC stats:', error);
+                }
+            }
+        }, 1000);
+    }
+
+    stopWebRTCStatsMonitoring() {
+        if (this.statsInterval) {
+            clearInterval(this.statsInterval);
+            this.statsInterval = null;
+        }
     }
 
     handleBinaryData(arrayBuffer) {

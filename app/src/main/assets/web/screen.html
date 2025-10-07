@@ -281,7 +281,12 @@
                 <div class="spinner"></div>
                 <p>正在连接...</p>
             </div>
-            <canvas id="screen-canvas"></canvas>
+            <!-- WebRTC video element (hidden by default) -->
+            <video id="screen-video" autoplay playsinline muted
+                   style="display: none; max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); background: #000;">
+            </video>
+            <!-- WebSocket canvas (shown by default) -->
+            <canvas id="screen-canvas" style="display: block;"></canvas>
         </div>
 
         <div class="sidebar">
@@ -319,7 +324,11 @@
             <div class="status-info">
                 <h2>连接状态</h2>
                 <div class="status-item">
-                    <span>WebSocket</span>
+                    <span>传输方式</span>
+                    <span id="transport-type" style="font-weight: 600;">检测中...</span>
+                </div>
+                <div class="status-item">
+                    <span>连接状态</span>
                     <span>
                         <span id="ws-status">未连接</span>
                         <span id="ws-indicator" class="status-indicator disconnected"></span>
@@ -343,6 +352,9 @@
 
     <div id="toast" class="toast"></div>
 
+    <!-- Transport abstraction layers -->
+    <script src="js/webrtc-transport.js"></script>
+    <script src="js/transport-negotiator.js"></script>
     <script src="js/screen-viewer.js"></script>
 </body>
 </html>

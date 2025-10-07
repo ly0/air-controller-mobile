@@ -4,6 +4,8 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url "https://jitpack.io" }
+        // Required for WebRTC Android
+        maven { url 'https://maven.google.com' }
     }
 }
 rootProject.name = "air_controller_mobile"
