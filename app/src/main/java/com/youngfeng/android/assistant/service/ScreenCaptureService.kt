@@ -9,6 +9,10 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.AudioRecord
 import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -44,6 +48,14 @@ class ScreenCaptureService : Service() {
     private var imageReader: ImageReader? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var captureJob: Job? = null
+
+    // Audio capture variables
+    private var audioRecord: AudioRecord? = null
+    private var audioCaptureJob: Job? = null
+    private var isAudioEnabled = true // Can be toggled by user
+    private val audioSampleRate = 48000 // 48kHz
+    private val audioChannelConfig = AudioFormat.CHANNEL_IN_STEREO
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
     // Performance optimization variables
     private var targetFps = 30 // Default target FPS
@@ -211,11 +223,133 @@ class ScreenCaptureService : Service() {
             // Start capturing frames
             startFrameCapture()
 
-            Timber.d("Screen capture started successfully")
+            // Start audio capture if supported (Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startAudioCapture()
+            } else {
+                Timber.w("Audio capture not supported on Android < 10")
+            }
+
+            Timber.d("Screen capture started successfully (with audio: ${Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q})")
         } catch (e: Exception) {
             Timber.e(e, "Failed to start screen capture")
             stopCapture()
         }
+    }
+
+    private fun startAudioCapture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Timber.w("Audio capture requires Android 10+")
+            return
+        }
+
+        try {
+            // Stop any existing audio capture
+            stopAudioCapture()
+
+            // Build AudioPlaybackCaptureConfiguration
+            val audioConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
+
+            // Calculate buffer size
+            val bufferSize = AudioRecord.getMinBufferSize(
+                audioSampleRate,
+                audioChannelConfig,
+                audioFormat
+            ).coerceAtLeast(4096)
+
+            // Build AudioFormat
+            val audioFormatBuilder = AudioFormat.Builder()
+                .setEncoding(audioFormat)
+                .setSampleRate(audioSampleRate)
+                .setChannelMask(audioChannelConfig)
+                .build()
+
+            // Create AudioRecord with playback capture
+            audioRecord = AudioRecord.Builder()
+                .setAudioFormat(audioFormatBuilder)
+                .setBufferSizeInBytes(bufferSize * 2) // Double buffer for safety
+                .setAudioPlaybackCaptureConfig(audioConfig)
+                .build()
+
+            // Start recording
+            audioRecord?.startRecording()
+
+            // Start audio capture job
+            audioCaptureJob = serviceScope.launch {
+                captureAndSendAudio(bufferSize)
+            }
+
+            Timber.d("Audio capture started successfully (Sample rate: $audioSampleRate, Buffer: $bufferSize)")
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start audio capture")
+            stopAudioCapture()
+        }
+    }
+
+    private suspend fun captureAndSendAudio(bufferSize: Int) = withContext(Dispatchers.IO) {
+        val buffer = ByteArray(bufferSize)
+        var audioPacketCount = 0L
+
+        try {
+            while (isActive && isAudioEnabled) {
+                val bytesRead = audioRecord?.read(buffer, 0, bufferSize) ?: -1
+
+                if (bytesRead > 0) {
+                    // Create audio packet with header
+                    // Format: [type(1) | timestamp(8) | size(4) | data]
+                    val timestamp = System.currentTimeMillis()
+                    val packet = ByteArray(1 + 8 + 4 + bytesRead)
+
+                    // Type: 0x01 for audio
+                    packet[0] = 0x01
+
+                    // Timestamp (8 bytes)
+                    for (i in 0..7) {
+                        packet[1 + i] = ((timestamp shr (56 - i * 8)) and 0xFF).toByte()
+                    }
+
+                    // Size (4 bytes)
+                    for (i in 0..3) {
+                        packet[9 + i] = ((bytesRead shr (24 - i * 8)) and 0xFF).toByte()
+                    }
+
+                    // Audio data
+                    System.arraycopy(buffer, 0, packet, 13, bytesRead)
+
+                    // Broadcast audio packet
+                    ScreenStreamManager.broadcastAudio(packet)
+
+                    audioPacketCount++
+
+                    // Log every 100 packets
+                    if (audioPacketCount % 100 == 0L) {
+                        Timber.d("Audio packets sent: $audioPacketCount")
+                    }
+                } else if (bytesRead < 0) {
+                    Timber.e("AudioRecord read error: $bytesRead")
+                    delay(10) // Wait before retry
+                }
+            }
+        } catch (e: Exception) {
+            if (e !is CancellationException) {
+                Timber.e(e, "Error capturing audio")
+            }
+        }
+    }
+
+    private fun stopAudioCapture() {
+        audioCaptureJob?.cancel()
+        audioCaptureJob = null
+
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+
+        Timber.d("Audio capture stopped")
     }
 
     private fun startFrameCapture() {
@@ -318,6 +452,9 @@ class ScreenCaptureService : Service() {
         captureJob?.cancel()
         captureJob = null
 
+        // Stop audio capture
+        stopAudioCapture()
+
         virtualDisplay?.release()
         virtualDisplay = null
 
@@ -337,6 +474,13 @@ class ScreenCaptureService : Service() {
 
         Timber.d("Screen capture stopped")
     }
+
+    fun setAudioEnabled(enabled: Boolean) {
+        isAudioEnabled = enabled
+        Timber.d("Audio ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun isAudioEnabled(): Boolean = isAudioEnabled
 
     override fun onDestroy() {
         super.onDestroy()

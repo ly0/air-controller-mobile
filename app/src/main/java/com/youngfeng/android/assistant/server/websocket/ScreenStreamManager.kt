@@ -67,15 +67,32 @@ object ScreenStreamManager {
 
     /**
      * Broadcast screen frame to all connected clients
+     * Frame format: [0x00 | timestamp(8) | jpeg_data]
      */
     suspend fun broadcastFrame(frameData: ByteArray) {
+        // Create packet with type header
+        // Type: 0x00 for video frame
+        val timestamp = System.currentTimeMillis()
+        val packet = ByteArray(1 + 8 + frameData.size)
+
+        // Type byte
+        packet[0] = 0x00
+
+        // Timestamp (8 bytes)
+        for (i in 0..7) {
+            packet[1 + i] = ((timestamp shr (56 - i * 8)) and 0xFF).toByte()
+        }
+
+        // Frame data
+        System.arraycopy(frameData, 0, packet, 9, frameData.size)
+
         // Emit to flow for any listeners
-        _frameFlow.emit(frameData)
+        _frameFlow.emit(packet)
 
         // Also send directly to all connections
         if (connections.isEmpty()) return
 
-        val frame = Frame.Binary(true, frameData)
+        val frame = Frame.Binary(true, packet)
         val iterator = connections.iterator()
         while (iterator.hasNext()) {
             val session = iterator.next()
@@ -88,6 +105,32 @@ object ScreenStreamManager {
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to send frame to connection")
+                iterator.remove()
+            }
+        }
+    }
+
+    /**
+     * Broadcast audio data to all connected clients
+     * Audio packet format: [0x01 | timestamp(8) | size(4) | pcm_data]
+     */
+    suspend fun broadcastAudio(audioData: ByteArray) {
+        // Audio data already contains the header from ScreenCaptureService
+        if (connections.isEmpty()) return
+
+        val frame = Frame.Binary(true, audioData)
+        val iterator = connections.iterator()
+        while (iterator.hasNext()) {
+            val session = iterator.next()
+            try {
+                if (!session.outgoing.isClosedForSend) {
+                    session.send(frame)
+                } else {
+                    iterator.remove()
+                    Timber.w("Removed inactive connection during audio broadcast")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to send audio to connection")
                 iterator.remove()
             }
         }

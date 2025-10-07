@@ -40,6 +40,14 @@ class ScreenViewer {
             this.imagePool.push(new Image());
         }
 
+        // Audio playback setup
+        this.audioContext = null;
+        this.audioEnabled = true;
+        this.audioQueue = [];
+        this.nextPlayTime = 0;
+        this.audioSampleRate = 48000;
+        this.audioChannels = 2;
+
         this.init();
     }
 
@@ -81,6 +89,15 @@ class ScreenViewer {
         qualitySlider.addEventListener('input', (e) => {
             document.getElementById('quality-value').textContent = e.target.value;
             this.sendQualityUpdate(e.target.value);
+        });
+
+        // Audio toggle button
+        const audioToggleBtn = document.getElementById('audio-toggle');
+        audioToggleBtn.addEventListener('click', () => {
+            const enabled = this.toggleAudio();
+            audioToggleBtn.textContent = enabled ? '🔊 音频已开启' : '🔇 音频已关闭';
+            audioToggleBtn.classList.toggle('primary', enabled);
+            this.showToast(enabled ? '音频已开启' : '音频已关闭');
         });
     }
 
@@ -192,8 +209,8 @@ class ScreenViewer {
 
         this.ws.onmessage = (event) => {
             if (event.data instanceof ArrayBuffer) {
-                // Binary data - screen frame
-                this.handleScreenFrame(event.data);
+                // Binary data - could be video frame or audio data
+                this.handleBinaryData(event.data);
             } else {
                 // JSON message
                 try {
@@ -230,7 +247,51 @@ class ScreenViewer {
         this.stopPingInterval();
     }
 
-    handleScreenFrame(arrayBuffer) {
+    handleBinaryData(arrayBuffer) {
+        // Parse packet header
+        // Format: [type(1) | timestamp(8) | data...]
+        const dataView = new DataView(arrayBuffer);
+
+        if (arrayBuffer.byteLength < 9) {
+            console.error('Invalid packet: too small');
+            return;
+        }
+
+        const packetType = dataView.getUint8(0);
+
+        // Extract timestamp (8 bytes, big-endian)
+        let timestamp = 0;
+        for (let i = 0; i < 8; i++) {
+            timestamp = (timestamp * 256) + dataView.getUint8(1 + i);
+        }
+
+        if (packetType === 0x00) {
+            // Video frame (type 0x00)
+            // Data starts at byte 9
+            const frameData = arrayBuffer.slice(9);
+            this.handleScreenFrame(frameData, timestamp);
+        } else if (packetType === 0x01) {
+            // Audio packet (type 0x01)
+            // Format: [type(1) | timestamp(8) | size(4) | pcm_data]
+            if (arrayBuffer.byteLength < 13) {
+                console.error('Invalid audio packet: too small');
+                return;
+            }
+
+            const audioDataSize = dataView.getInt32(9, false); // big-endian
+            const audioData = arrayBuffer.slice(13);
+
+            if (audioData.byteLength >= audioDataSize) {
+                this.handleAudioData(audioData.slice(0, audioDataSize), timestamp);
+            } else {
+                console.error(`Audio packet size mismatch: expected ${audioDataSize}, got ${audioData.byteLength}`);
+            }
+        } else {
+            console.warn('Unknown packet type:', packetType);
+        }
+    }
+
+    handleScreenFrame(arrayBuffer, timestamp) {
         // Track total frames received
         this.performanceMonitor.totalFrames++;
 
@@ -321,6 +382,131 @@ class ScreenViewer {
         if (this.imagePool.length < this.maxImagePoolSize) {
             this.imagePool.push(img);
         }
+    }
+
+    handleAudioData(audioDataBuffer, timestamp) {
+        if (!this.audioEnabled) {
+            return;
+        }
+
+        try {
+            // Initialize audio context on first audio packet
+            if (!this.audioContext) {
+                this.initAudioContext();
+            }
+
+            // Convert PCM 16-bit stereo to Float32Array for Web Audio API
+            const pcmData = new Int16Array(audioDataBuffer);
+            const samplesPerChannel = pcmData.length / this.audioChannels;
+
+            // Create audio buffer
+            const audioBuffer = this.audioContext.createBuffer(
+                this.audioChannels,
+                samplesPerChannel,
+                this.audioSampleRate
+            );
+
+            // Convert Int16 PCM to Float32 (-1.0 to 1.0)
+            for (let channel = 0; channel < this.audioChannels; channel++) {
+                const channelData = audioBuffer.getChannelData(channel);
+                for (let i = 0; i < samplesPerChannel; i++) {
+                    // Interleaved stereo: L, R, L, R, ...
+                    const sample = pcmData[i * this.audioChannels + channel];
+                    channelData[i] = sample / 32768.0; // Convert to -1.0 to 1.0
+                }
+            }
+
+            // Schedule playback
+            this.scheduleAudioPlayback(audioBuffer, timestamp);
+
+        } catch (e) {
+            console.error('Error handling audio data:', e);
+        }
+    }
+
+    initAudioContext() {
+        try {
+            // Create audio context
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.audioContext = new AudioContext({ sampleRate: this.audioSampleRate });
+
+            // Initialize playback time
+            this.nextPlayTime = this.audioContext.currentTime;
+
+            console.log('Audio context initialized:', {
+                sampleRate: this.audioContext.sampleRate,
+                state: this.audioContext.state
+            });
+
+            // Resume context if suspended (some browsers require user interaction)
+            if (this.audioContext.state === 'suspended') {
+                this.audioContext.resume().then(() => {
+                    console.log('Audio context resumed');
+                });
+            }
+        } catch (e) {
+            console.error('Failed to initialize audio context:', e);
+        }
+    }
+
+    scheduleAudioPlayback(audioBuffer, timestamp) {
+        if (!this.audioContext || !audioBuffer) {
+            return;
+        }
+
+        try {
+            // Create buffer source
+            const source = this.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+
+            // Optional: Add gain control for volume
+            const gainNode = this.audioContext.createGain();
+            gainNode.gain.value = 1.0; // Full volume
+
+            // Connect: source -> gain -> destination
+            source.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+
+            // Calculate when to play this buffer
+            const currentTime = this.audioContext.currentTime;
+            const bufferDuration = audioBuffer.duration;
+
+            // If we're behind, catch up by playing immediately
+            if (this.nextPlayTime < currentTime) {
+                this.nextPlayTime = currentTime;
+            }
+
+            // Schedule playback
+            source.start(this.nextPlayTime);
+
+            // Update next play time
+            this.nextPlayTime += bufferDuration;
+
+            // Cleanup after playback
+            source.onended = () => {
+                source.disconnect();
+                gainNode.disconnect();
+            };
+
+        } catch (e) {
+            console.error('Error scheduling audio playback:', e);
+        }
+    }
+
+    toggleAudio() {
+        this.audioEnabled = !this.audioEnabled;
+        console.log('Audio', this.audioEnabled ? 'enabled' : 'disabled');
+
+        if (!this.audioEnabled && this.audioContext) {
+            // Stop all scheduled audio
+            this.audioContext.close().then(() => {
+                this.audioContext = null;
+                this.nextPlayTime = 0;
+                console.log('Audio context closed');
+            });
+        }
+
+        return this.audioEnabled;
     }
 
     handleJsonMessage(message) {
